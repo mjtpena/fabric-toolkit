@@ -1,0 +1,597 @@
+{
+  "monitoringConfiguration": {
+    "version": "3.0",
+    "description": "Advanced monitoring and alerting configuration for enhanced Fabric Lakehouse backup orchestration",
+    "alertRules": [
+      {
+        "name": "Pipeline Execution Failure",
+        "description": "Alert when pipeline execution fails",
+        "severity": "Critical",
+        "condition": {
+          "eventType": "PipelineCompleted",
+          "status": "Failed"
+        },
+        "actions": [
+          {
+            "type": "email",
+            "recipients": ["ops-team@company.com", "data-team@company.com"]
+          },
+          {
+            "type": "slack",
+            "channel": "#data-ops-alerts",
+            "severity": "critical"
+          },
+          {
+            "type": "pagerduty",
+            "serviceKey": "fabric-lakehouse-service"
+          }
+        ],
+        "throttling": {
+          "interval": "PT15M",
+          "maxAlertsPerInterval": 3
+        }
+      },
+      {
+        "name": "Circuit Breaker Open",
+        "description": "Alert when circuit breaker opens due to repeated failures",
+        "severity": "High",
+        "condition": {
+          "eventType": "CircuitBreakerOpen"
+        },
+        "actions": [
+          {
+            "type": "email",
+            "recipients": ["ops-team@company.com"]
+          },
+          {
+            "type": "slack",
+            "channel": "#data-ops-alerts",
+            "severity": "high"
+          },
+          {
+            "type": "webhook",
+            "url": "https://incident-management.company.com/create-incident",
+            "headers": {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer ${INCIDENT_MGMT_TOKEN}"
+            }
+          }
+        ],
+        "escalation": {
+          "enabled": true,
+          "escalateAfter": "PT30M",
+          "escalateTo": ["senior-ops@company.com"]
+        }
+      },
+      {
+        "name": "Security Scan High Risk",
+        "description": "Alert when security scan detects high risk",
+        "severity": "High",
+        "condition": {
+          "eventType": "SecurityScanCompleted",
+          "riskScore": {
+            "operator": ">=",
+            "value": 8.0
+          }
+        },
+        "actions": [
+          {
+            "type": "email",
+            "recipients": ["security-team@company.com", "data-team@company.com"]
+          },
+          {
+            "type": "slack",
+            "channel": "#security-alerts",
+            "severity": "high"
+          },
+          {
+            "type": "jira",
+            "project": "SEC",
+            "issueType": "Security Incident",
+            "priority": "High"
+          }
+        ],
+        "autoRemediation": {
+          "enabled": true,
+          "actions": [
+            {
+              "type": "temporaryDisable",
+              "component": "backup-pipeline",
+              "duration": "PT1H"
+            },
+            {
+              "type": "notifySecurityTeam",
+              "escalationLevel": "immediate"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Health Check Failure",
+        "description": "Alert when health checks fail",
+        "severity": "Medium",
+        "condition": {
+          "eventType": "HealthCheckCompleted",
+          "status": "Failed"
+        },
+        "actions": [
+          {
+            "type": "email",
+            "recipients": ["ops-team@company.com"]
+          },
+          {
+            "type": "slack",
+            "channel": "#data-ops-alerts",
+            "severity": "medium"
+          }
+        ],
+        "retryLogic": {
+          "enabled": true,
+          "maxRetries": 3,
+          "retryInterval": "PT5M"
+        }
+      },
+      {
+        "name": "Backup Duration Anomaly",
+        "description": "Alert when backup takes significantly longer than usual",
+        "severity": "Medium",
+        "condition": {
+          "eventType": "BackupCompleted",
+          "duration": {
+            "operator": ">",
+            "value": "PT2H",
+            "baseline": "historical_average",
+            "threshold": "2_standard_deviations"
+          }
+        },
+        "actions": [
+          {
+            "type": "email",
+            "recipients": ["performance-team@company.com"]
+          },
+          {
+            "type": "slack",
+            "channel": "#performance-alerts",
+            "severity": "medium"
+          }
+        ],
+        "analysis": {
+          "enabled": true,
+          "collectMetrics": [
+            "resource_utilization",
+            "data_volume",
+            "network_latency"
+          ]
+        }
+      },
+      {
+        "name": "Storage Space Warning",
+        "description": "Alert when backup storage space is running low",
+        "severity": "Medium",
+        "condition": {
+          "metric": "storage_utilization_percentage",
+          "operator": ">=",
+          "value": 85
+        },
+        "actions": [
+          {
+            "type": "email",
+            "recipients": ["storage-team@company.com", "ops-team@company.com"]
+          },
+          {
+            "type": "slack",
+            "channel": "#storage-alerts",
+            "severity": "medium"
+          }
+        ],
+        "autoRemediation": {
+          "enabled": true,
+          "actions": [
+            {
+              "type": "triggerCleanup",
+              "parameters": {
+                "retentionDays": 15,
+                "aggressiveMode": true
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "Data Quality Issues",
+        "description": "Alert when data quality checks fail",
+        "severity": "Medium",
+        "condition": {
+          "eventType": "DataQualityCheckCompleted",
+          "qualityScore": {
+            "operator": "<",
+            "value": 0.95
+          }
+        },
+        "actions": [
+          {
+            "type": "email",
+            "recipients": ["data-quality-team@company.com"]
+          },
+          {
+            "type": "slack",
+            "channel": "#data-quality-alerts",
+            "severity": "medium"
+          },
+          {
+            "type": "dashboard",
+            "name": "data-quality-dashboard",
+            "action": "highlight_issues"
+          }
+        ]
+      }
+    ],
+    "metrics": [
+      {
+        "name": "pipeline_success_rate",
+        "description": "Percentage of successful pipeline executions",
+        "type": "percentage",
+        "aggregation": "average",
+        "timeWindow": "PT24H",
+        "threshold": {
+          "warning": 95,
+          "critical": 90
+        }
+      },
+      {
+        "name": "backup_duration",
+        "description": "Time taken for backup operations",
+        "type": "duration",
+        "aggregation": "percentile_95",
+        "timeWindow": "PT24H",
+        "threshold": {
+          "warning": "PT1H30M",
+          "critical": "PT2H"
+        }
+      },
+      {
+        "name": "circuit_breaker_trips",
+        "description": "Number of circuit breaker activations",
+        "type": "count",
+        "aggregation": "sum",
+        "timeWindow": "PT24H",
+        "threshold": {
+          "warning": 3,
+          "critical": 5
+        }
+      },
+      {
+        "name": "security_risk_score",
+        "description": "Average security risk score",
+        "type": "score",
+        "aggregation": "average",
+        "timeWindow": "PT24H",
+        "threshold": {
+          "warning": 5.0,
+          "critical": 8.0
+        }
+      },
+      {
+        "name": "data_quality_score",
+        "description": "Data quality score percentage",
+        "type": "percentage",
+        "aggregation": "average",
+        "timeWindow": "PT24H",
+        "threshold": {
+          "warning": 95,
+          "critical": 90
+        }
+      },
+      {
+        "name": "storage_utilization",
+        "description": "Backup storage utilization percentage",
+        "type": "percentage",
+        "aggregation": "latest",
+        "timeWindow": "PT1H",
+        "threshold": {
+          "warning": 80,
+          "critical": 90
+        }
+      },
+      {
+        "name": "retry_rate",
+        "description": "Percentage of executions requiring retries",
+        "type": "percentage",
+        "aggregation": "average",
+        "timeWindow": "PT24H",
+        "threshold": {
+          "warning": 10,
+          "critical": 20
+        }
+      }
+    ],
+    "dashboards": [
+      {
+        "name": "Fabric Lakehouse Operations Overview",
+        "description": "Main operational dashboard for backup orchestration",
+        "panels": [
+          {
+            "title": "Pipeline Execution Status",
+            "type": "stat",
+            "metrics": ["pipeline_success_rate"],
+            "timeRange": "24h"
+          },
+          {
+            "title": "Execution Timeline",
+            "type": "timeline",
+            "events": ["PipelineStart", "BackupCompleted", "CleanupCompleted", "PipelineCompleted"],
+            "timeRange": "7d"
+          },
+          {
+            "title": "Performance Metrics",
+            "type": "graph",
+            "metrics": ["backup_duration", "cleanup_duration"],
+            "timeRange": "24h"
+          },
+          {
+            "title": "Circuit Breaker Status",
+            "type": "indicator",
+            "metric": "circuit_breaker_state",
+            "thresholds": {
+              "green": "Closed",
+              "yellow": "Half-Open",
+              "red": "Open"
+            }
+          },
+          {
+            "title": "Security Risk Trends",
+            "type": "graph",
+            "metrics": ["security_risk_score"],
+            "timeRange": "7d"
+          },
+          {
+            "title": "Storage Utilization",
+            "type": "gauge",
+            "metric": "storage_utilization",
+            "thresholds": {
+              "green": [0, 70],
+              "yellow": [70, 85],
+              "red": [85, 100]
+            }
+          }
+        ]
+      },
+      {
+        "name": "Data Quality Dashboard",
+        "description": "Detailed view of data quality metrics and trends",
+        "panels": [
+          {
+            "title": "Overall Data Quality Score",
+            "type": "stat",
+            "metrics": ["data_quality_score"],
+            "timeRange": "24h"
+          },
+          {
+            "title": "Quality Trends",
+            "type": "graph",
+            "metrics": ["data_quality_score"],
+            "timeRange": "30d"
+          },
+          {
+            "title": "Quality Issues by Category",
+            "type": "pie",
+            "metric": "quality_issues_by_category",
+            "timeRange": "7d"
+          },
+          {
+            "title": "Failed Quality Checks",
+            "type": "table",
+            "columns": ["timestamp", "check_type", "table_name", "issue_description", "severity"],
+            "timeRange": "24h"
+          }
+        ]
+      },
+      {
+        "name": "Security Monitoring Dashboard",
+        "description": "Security-focused monitoring and alerting dashboard",
+        "panels": [
+          {
+            "title": "Security Risk Score",
+            "type": "gauge",
+            "metric": "security_risk_score",
+            "thresholds": {
+              "green": [0, 3],
+              "yellow": [3, 6],
+              "orange": [6, 8],
+              "red": [8, 10]
+            }
+          },
+          {
+            "title": "Security Events",
+            "type": "list",
+            "events": ["SecurityScanCompleted", "SecurityIncident", "AccessViolation"],
+            "timeRange": "7d"
+          },
+          {
+            "title": "Compliance Status",
+            "type": "status_grid",
+            "items": ["GDPR", "SOX", "HIPAA", "PCI-DSS"],
+            "metric": "compliance_status"
+          },
+          {
+            "title": "Access Patterns",
+            "type": "heatmap",
+            "metric": "access_patterns",
+            "timeRange": "7d"
+          }
+        ]
+      }
+    ],
+    "reportSchedules": [
+      {
+        "name": "Daily Operations Report",
+        "description": "Daily summary of backup operations",
+        "frequency": "daily",
+        "time": "08:00",
+        "timezone": "UTC",
+        "recipients": ["ops-team@company.com"],
+        "format": "html",
+        "sections": [
+          "execution_summary",
+          "performance_metrics",
+          "quality_metrics",
+          "security_summary",
+          "storage_utilization",
+          "upcoming_maintenance"
+        ]
+      },
+      {
+        "name": "Weekly Executive Summary",
+        "description": "High-level weekly summary for executives",
+        "frequency": "weekly",
+        "day": "monday",
+        "time": "09:00",
+        "timezone": "UTC",
+        "recipients": ["executives@company.com"],
+        "format": "pdf",
+        "sections": [
+          "kpi_summary",
+          "trend_analysis",
+          "capacity_planning",
+          "risk_assessment",
+          "cost_optimization"
+        ]
+      },
+      {
+        "name": "Monthly Compliance Report",
+        "description": "Detailed monthly compliance and security report",
+        "frequency": "monthly",
+        "day": 1,
+        "time": "10:00",
+        "timezone": "UTC",
+        "recipients": ["compliance@company.com", "security@company.com"],
+        "format": "pdf",
+        "sections": [
+          "compliance_status",
+          "security_incidents",
+          "audit_trail",
+          "risk_assessment",
+          "remediation_actions"
+        ]
+      }
+    ],
+    "webhookEndpoints": [
+      {
+        "path": "/circuit-breaker/status",
+        "method": "GET",
+        "description": "Get current circuit breaker state",
+        "authentication": "bearer_token",
+        "response": {
+          "state": "string",
+          "failureCount": "integer",
+          "lastFailure": "datetime",
+          "nextRetry": "datetime"
+        }
+      },
+      {
+        "path": "/circuit-breaker/update",
+        "method": "POST",
+        "description": "Update circuit breaker state based on execution results",
+        "authentication": "bearer_token",
+        "requestBody": {
+          "executionId": "string",
+          "success": "boolean",
+          "timestamp": "datetime",
+          "metrics": "object"
+        }
+      },
+      {
+        "path": "/health/check",
+        "method": "POST",
+        "description": "Perform system health check",
+        "authentication": "bearer_token",
+        "requestBody": {
+          "checkType": "string",
+          "services": "array",
+          "lakehouse": "string",
+          "storageLocation": "string"
+        },
+        "response": {
+          "status": "string",
+          "checks": "array",
+          "timestamp": "datetime"
+        }
+      },
+      {
+        "path": "/security/scan",
+        "method": "POST",
+        "description": "Execute security validation scan",
+        "authentication": "bearer_token",
+        "requestBody": {
+          "scanType": "string",
+          "resources": "array",
+          "compliance": "array",
+          "checkAccessPatterns": "boolean",
+          "validateEncryption": "boolean"
+        },
+        "response": {
+          "status": "string",
+          "findings": "array",
+          "riskScore": "number",
+          "compliance": "object"
+        }
+      },
+      {
+        "path": "/fabric/validate",
+        "method": "POST",
+        "description": "Validate Fabric Lakehouse connectivity and permissions",
+        "authentication": "bearer_token",
+        "requestBody": {
+          "lakehouseName": "string",
+          "validatePermissions": "boolean",
+          "checkConnectivity": "boolean",
+          "environment": "string"
+        },
+        "response": {
+          "status": "string",
+          "connectivity": "boolean",
+          "permissions": "array",
+          "latency": "number"
+        }
+      }
+    ],
+    "integrations": [
+      {
+        "name": "Azure Monitor",
+        "type": "metrics_sink",
+        "configuration": {
+          "workspace_id": "${AZURE_MONITOR_WORKSPACE_ID}",
+          "shared_key": "${AZURE_MONITOR_SHARED_KEY}",
+          "log_type": "FabricLakehouseOperations"
+        }
+      },
+      {
+        "name": "Application Insights",
+        "type": "telemetry",
+        "configuration": {
+          "instrumentation_key": "${APP_INSIGHTS_KEY}",
+          "enable_dependency_tracking": true,
+          "sampling_percentage": 100
+        }
+      },
+      {
+        "name": "Splunk",
+        "type": "log_sink",
+        "configuration": {
+          "hec_endpoint": "${SPLUNK_HEC_ENDPOINT}",
+          "hec_token": "${SPLUNK_HEC_TOKEN}",
+          "index": "fabric_operations"
+        }
+      },
+      {
+        "name": "Datadog",
+        "type": "metrics_and_logs",
+        "configuration": {
+          "api_key": "${DATADOG_API_KEY}",
+          "site": "datadoghq.com",
+          "service": "fabric-lakehouse-backup"
+        }
+      }
+    ]
+  }
+}

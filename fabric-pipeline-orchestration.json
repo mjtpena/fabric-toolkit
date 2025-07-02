@@ -1,53 +1,57 @@
 {
   "name": "Fabric Lakehouse Backup Orchestration Pipeline",
-  "description": "Main orchestration pipeline for Microsoft Fabric Lakehouse backup and cleanup operations",
-  "version": "1.0",
+  "description": "Production-ready orchestration pipeline for Microsoft Fabric Lakehouse backup and cleanup operations with comprehensive error handling, monitoring, and security features",
+  "version": "2.0",
   "pipeline": {
     "activities": [
       {
         "name": "Initialize Pipeline Parameters",
         "type": "SetVariable",
-        "description": "Set up common parameters for the pipeline execution",
+        "description": "Set up common parameters for the pipeline execution with enhanced metadata",
         "typeProperties": {
           "variableName": "PipelineConfig",
           "value": {
             "executionId": "@pipeline().RunId",
             "executionTime": "@utcnow()",
             "environment": "@pipeline().parameters.Environment",
-            "notificationEnabled": "@pipeline().parameters.NotificationEnabled"
+            "notificationEnabled": "@pipeline().parameters.NotificationEnabled",
+            "correlationId": "@guid()",
+            "pipelineVersion": "2.0",
+            "triggerType": "@pipeline().TriggerType",
+            "triggerName": "@pipeline().TriggerName"
           }
         },
         "dependsOn": []
       },
       {
-        "name": "Validate Configuration",
-        "type": "IfCondition",
-        "description": "Validate that required parameters are provided",
+        "name": "Log Pipeline Start",
+        "type": "WebActivity",
+        "description": "Log pipeline execution start for monitoring and auditing",
         "typeProperties": {
-          "expression": {
-            "type": "Expression",
-            "value": "@and(not(empty(pipeline().parameters.SourceLakehouseName)), not(empty(pipeline().parameters.BackupLocation)))"
+          "url": "@pipeline().parameters.MonitoringWebhookUrl",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
           },
-          "ifTrueActivities": [
-            {
-              "name": "Log Configuration Valid",
-              "type": "SetVariable",
-              "typeProperties": {
-                "variableName": "ValidationStatus",
-                "value": "Valid"
-              }
+          "body": {
+            "eventType": "PipelineStart",
+            "pipelineName": "@pipeline().Pipeline",
+            "executionId": "@variables('PipelineConfig').executionId",
+            "correlationId": "@variables('PipelineConfig').correlationId",
+            "environment": "@variables('PipelineConfig').environment",
+            "timestamp": "@variables('PipelineConfig').executionTime",
+            "parameters": {
+              "sourceLakehouse": "@pipeline().parameters.SourceLakehouseName",
+              "backupLocation": "@pipeline().parameters.BackupLocation",
+              "backupMode": "@pipeline().parameters.BackupMode"
             }
-          ],
-          "ifFalseActivities": [
-            {
-              "name": "Fail Pipeline - Invalid Configuration",
-              "type": "Fail",
-              "typeProperties": {
-                "message": "Required parameters missing: SourceLakehouseName and BackupLocation are mandatory",
-                "errorCode": "INVALID_CONFIG"
-              }
-            }
-          ]
+          }
+        },
+        "policy": {
+          "timeout": "00:02:00",
+          "retry": 2,
+          "retryIntervalInSeconds": 30
         },
         "dependsOn": [
           {
@@ -57,9 +61,127 @@
         ]
       },
       {
+        "name": "Validate Configuration",
+        "type": "IfCondition",
+        "description": "Comprehensive validation of required parameters and environment readiness",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@and(and(not(empty(pipeline().parameters.SourceLakehouseName)), not(empty(pipeline().parameters.BackupLocation))), and(not(empty(pipeline().parameters.MonitoringWebhookUrl)), not(empty(pipeline().parameters.Environment))))"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Validate Storage Access",
+              "type": "WebActivity",
+              "description": "Validate access to backup storage location",
+              "typeProperties": {
+                "url": "@concat(pipeline().parameters.BackupLocation, '?comp=list&maxresults=1')",
+                "method": "GET",
+                "authentication": {
+                  "type": "MSI",
+                  "resource": "https://storage.azure.com/"
+                }
+              },
+              "policy": {
+                "timeout": "00:05:00",
+                "retry": 3,
+                "retryIntervalInSeconds": 60
+              }
+            },
+            {
+              "name": "Set Configuration Valid",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "ValidationStatus",
+                "value": "Valid"
+              },
+              "dependsOn": [
+                {
+                  "activity": "Validate Storage Access",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            },
+            {
+              "name": "Log Validation Success",
+              "type": "WebActivity",
+              "typeProperties": {
+                "url": "@pipeline().parameters.MonitoringWebhookUrl",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+                },
+                "body": {
+                  "eventType": "ValidationSuccess",
+                  "executionId": "@variables('PipelineConfig').executionId",
+                  "message": "Configuration validation completed successfully",
+                  "timestamp": "@utcnow()"
+                }
+              },
+              "policy": {
+                "timeout": "00:02:00",
+                "retry": 2
+              },
+              "dependsOn": [
+                {
+                  "activity": "Set Configuration Valid",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Log Validation Failure",
+              "type": "WebActivity",
+              "typeProperties": {
+                "url": "@pipeline().parameters.MonitoringWebhookUrl",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+                },
+                "body": {
+                  "eventType": "ValidationFailure",
+                  "executionId": "@variables('PipelineConfig').executionId",
+                  "message": "Required parameters missing or invalid",
+                  "missingParameters": "@if(empty(pipeline().parameters.SourceLakehouseName), 'SourceLakehouseName,', '')@if(empty(pipeline().parameters.BackupLocation), 'BackupLocation,', '')@if(empty(pipeline().parameters.MonitoringWebhookUrl), 'MonitoringWebhookUrl,', '')",
+                  "timestamp": "@utcnow()"
+                }
+              },
+              "policy": {
+                "timeout": "00:02:00",
+                "retry": 2
+              }
+            },
+            {
+              "name": "Fail Pipeline - Invalid Configuration",
+              "type": "Fail",
+              "typeProperties": {
+                "message": "Required parameters missing: SourceLakehouseName, BackupLocation, and MonitoringWebhookUrl are mandatory. Environment must also be specified.",
+                "errorCode": "INVALID_CONFIG"
+              },
+              "dependsOn": [
+                {
+                  "activity": "Log Validation Failure",
+                  "dependencyConditions": ["Completed"]
+                }
+              ]
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Log Pipeline Start",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      },
+      {
         "name": "Execute Backup Operation",
         "type": "FabricNotebook",
-        "description": "Execute the lakehouse backup using the backup notebook",
+        "description": "Execute the lakehouse backup using the backup notebook with enhanced error handling",
         "typeProperties": {
           "notebookPath": "Fabric_Lakehouse_Backup.ipynb",
           "parameters": {
@@ -114,8 +236,23 @@
             "enable_detailed_logging": {
               "value": "@pipeline().parameters.EnableDetailedLogging",
               "type": "Expression"
+            },
+            "correlation_id": {
+              "value": "@variables('PipelineConfig').correlationId",
+              "type": "Expression"
+            },
+            "execution_id": {
+              "value": "@variables('PipelineConfig').executionId",
+              "type": "Expression"
             }
           }
+        },
+        "policy": {
+          "timeout": "@pipeline().parameters.BackupTimeoutHours",
+          "retry": "@pipeline().parameters.BackupRetryCount",
+          "retryIntervalInSeconds": 300,
+          "secureOutput": true,
+          "secureInput": true
         },
         "dependsOn": [
           {

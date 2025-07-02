@@ -1,0 +1,1668 @@
+{
+  "name": "Enhanced Fabric Lakehouse Backup Orchestration Pipeline",
+  "description": "Enterprise-grade orchestration pipeline for Microsoft Fabric Lakehouse backup and cleanup operations with advanced production features including circuit breakers, health checks, security scanning, and comprehensive monitoring",
+  "version": "3.0",
+  "schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "pipeline": {
+    "parameters": {
+      "SourceLakehouseName": {
+        "type": "string",
+        "description": "Name of the source Fabric Lakehouse to backup"
+      },
+      "BackupLocation": {
+        "type": "string",
+        "description": "Azure Storage URL for backup destination"
+      },
+      "BackupMode": {
+        "type": "string",
+        "defaultValue": "Incremental",
+        "allowedValues": ["Full", "Incremental", "Differential"],
+        "description": "Backup mode to execute"
+      },
+      "EnableCleanup": {
+        "type": "bool",
+        "defaultValue": true,
+        "description": "Whether to perform cleanup after backup"
+      },
+      "CleanupRetentionDays": {
+        "type": "int",
+        "defaultValue": 30,
+        "description": "Number of days to retain old backups"
+      },
+      "Environment": {
+        "type": "string",
+        "defaultValue": "Development",
+        "allowedValues": ["Development", "Staging", "Production"],
+        "description": "Target environment for the operation"
+      },
+      "MonitoringWebhookUrl": {
+        "type": "string",
+        "description": "Webhook URL for monitoring and alerting"
+      },
+      "MonitoringToken": {
+        "type": "string",
+        "description": "Bearer token for monitoring webhook authentication"
+      },
+      "NotificationEnabled": {
+        "type": "bool",
+        "defaultValue": true,
+        "description": "Enable notifications for pipeline events"
+      },
+      "CorrelationId": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "Optional correlation ID for tracking across systems"
+      },
+      "MaxRetryAttempts": {
+        "type": "int",
+        "defaultValue": 3,
+        "description": "Maximum retry attempts for failed operations"
+      },
+      "HealthCheckEnabled": {
+        "type": "bool",
+        "defaultValue": true,
+        "description": "Enable pre-execution health checks"
+      },
+      "SecurityScanEnabled": {
+        "type": "bool",
+        "defaultValue": true,
+        "description": "Enable security validation scans"
+      },
+      "CircuitBreakerThreshold": {
+        "type": "int",
+        "defaultValue": 5,
+        "description": "Number of consecutive failures before circuit breaker opens"
+      },
+      "DataQualityCheckEnabled": {
+        "type": "bool",
+        "defaultValue": true,
+        "description": "Enable data quality validation"
+      },
+      "CostOptimizationEnabled": {
+        "type": "bool",
+        "defaultValue": true,
+        "description": "Enable intelligent cost optimization features"
+      },
+      "ComplianceMode": {
+        "type": "string",
+        "defaultValue": "Standard",
+        "allowedValues": ["Basic", "Standard", "Strict", "Financial"],
+        "description": "Compliance level for data governance and regulatory requirements"
+      },
+      "DisasterRecoveryEnabled": {
+        "type": "bool",
+        "defaultValue": false,
+        "description": "Enable disaster recovery and geo-replication features"
+      },
+      "SecondaryBackupLocation": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "Secondary backup location for disaster recovery"
+      },
+      "DataClassificationEnabled": {
+        "type": "bool",
+        "defaultValue": true,
+        "description": "Enable automatic data classification and sensitivity labeling"
+      },
+      "ApprovalWorkflowEnabled": {
+        "type": "bool",
+        "defaultValue": false,
+        "description": "Require approval workflow for production operations"
+      },
+      "ApprovalWebhookUrl": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "Webhook URL for approval workflow integration"
+      },
+      "ChangeManagementEnabled": {
+        "type": "bool",
+        "defaultValue": true,
+        "description": "Enable change management and audit logging"
+      },
+      "BusinessContinuityPlan": {
+        "type": "string",
+        "defaultValue": "Standard",
+        "allowedValues": ["Basic", "Standard", "Premium", "Critical"],
+        "description": "Business continuity plan level"
+      },
+      "AutoScalingEnabled": {
+        "type": "bool",
+        "defaultValue": true,
+        "description": "Enable automatic resource scaling based on workload"
+      },
+      "PredictiveAnalyticsEnabled": {
+        "type": "bool",
+        "defaultValue": false,
+        "description": "Enable predictive analytics for capacity planning"
+      },
+      "ServiceNowIntegration": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "ServiceNow instance URL for ITSM integration"
+      },
+      "JiraIntegration": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "Jira instance URL for issue tracking"
+      },
+      "SlackWebhookUrl": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "Slack webhook URL for team notifications"
+      },
+      "TeamsWebhookUrl": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "Microsoft Teams webhook URL for notifications"
+      },
+      "DataLineageTracking": {
+        "type": "bool",
+        "defaultValue": true,
+        "description": "Enable comprehensive data lineage tracking"
+      },
+      "MultiTenantSupport": {
+        "type": "bool",
+        "defaultValue": false,
+        "description": "Enable multi-tenant isolation and governance"
+      },
+      "TenantId": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "Tenant identifier for multi-tenant deployments"
+      }
+    },
+    "variables": {
+      "PipelineConfig": {
+        "type": "object"
+      },
+      "ValidationStatus": {
+        "type": "string",
+        "defaultValue": "Pending"
+      },
+      "BackupResult": {
+        "type": "object"
+      },
+      "CleanupResult": {
+        "type": "object"
+      },
+      "HealthCheckStatus": {
+        "type": "string",
+        "defaultValue": "Pending"
+      },
+      "SecurityScanResult": {
+        "type": "object"
+      },
+      "CircuitBreakerState": {
+        "type": "string",
+        "defaultValue": "Closed"
+      },
+      "RetryCount": {
+        "type": "int",
+        "defaultValue": 0
+      },
+      "ExecutionMetrics": {
+        "type": "object"
+      },
+      "CostMetrics": {
+        "type": "object"
+      },
+      "ComplianceStatus": {
+        "type": "object"
+      },
+      "DisasterRecoveryStatus": {
+        "type": "string",
+        "defaultValue": "NotConfigured"
+      },
+      "DataClassificationResult": {
+        "type": "object"
+      },
+      "ApprovalStatus": {
+        "type": "string",
+        "defaultValue": "NotRequired"
+      },
+      "ChangeManagementTicket": {
+        "type": "object"
+      },
+      "ResourceUtilization": {
+        "type": "object"
+      },
+      "PredictiveInsights": {
+        "type": "object"
+      },
+      "DataLineageMetadata": {
+        "type": "object"
+      },
+      "TenantContext": {
+        "type": "object"
+      }
+    },
+    "activities": [
+      {
+        "name": "Initialize Enhanced Pipeline Parameters",
+        "type": "SetVariable",
+        "description": "Initialize comprehensive pipeline configuration with enhanced metadata and feature flags",
+        "typeProperties": {
+          "variableName": "PipelineConfig",
+          "value": {
+            "executionId": "@pipeline().RunId",
+            "executionTime": "@utcnow()",
+            "environment": "@pipeline().parameters.Environment",
+            "notificationEnabled": "@pipeline().parameters.NotificationEnabled",
+            "correlationId": "@coalesce(pipeline().parameters.CorrelationId, guid())",
+            "pipelineVersion": "3.0",
+            "triggerType": "@pipeline().TriggerType",
+            "triggerName": "@pipeline().TriggerName",
+            "maxRetryAttempts": "@pipeline().parameters.MaxRetryAttempts",
+            "healthCheckEnabled": "@pipeline().parameters.HealthCheckEnabled",
+            "securityScanEnabled": "@pipeline().parameters.SecurityScanEnabled",
+            "circuitBreakerThreshold": "@pipeline().parameters.CircuitBreakerThreshold",
+            "dataQualityCheckEnabled": "@pipeline().parameters.DataQualityCheckEnabled",
+            "startTime": "@utcnow()",
+            "executionContext": {
+              "pipelineName": "@pipeline().Pipeline",
+              "dataFactory": "@pipeline().DataFactory",
+              "resourceGroup": "@pipeline().GroupId"
+            },
+            "enterpriseFeatures": {
+              "costOptimizationEnabled": "@pipeline().parameters.CostOptimizationEnabled",
+              "complianceMode": "@pipeline().parameters.ComplianceMode",
+              "disasterRecoveryEnabled": "@pipeline().parameters.DisasterRecoveryEnabled",
+              "dataClassificationEnabled": "@pipeline().parameters.DataClassificationEnabled",
+              "approvalWorkflowEnabled": "@pipeline().parameters.ApprovalWorkflowEnabled",
+              "changeManagementEnabled": "@pipeline().parameters.ChangeManagementEnabled",
+              "businessContinuityPlan": "@pipeline().parameters.BusinessContinuityPlan",
+              "autoScalingEnabled": "@pipeline().parameters.AutoScalingEnabled",
+              "predictiveAnalyticsEnabled": "@pipeline().parameters.PredictiveAnalyticsEnabled",
+              "dataLineageTracking": "@pipeline().parameters.DataLineageTracking",
+              "multiTenantSupport": "@pipeline().parameters.MultiTenantSupport"
+            },
+            "integrations": {
+              "serviceNow": "@pipeline().parameters.ServiceNowIntegration",
+              "jira": "@pipeline().parameters.JiraIntegration",
+              "slack": "@pipeline().parameters.SlackWebhookUrl",
+              "teams": "@pipeline().parameters.TeamsWebhookUrl"
+            }
+          }
+        },
+        "dependsOn": []
+      },
+      {
+        "name": "Initialize Tenant Context",
+        "type": "IfCondition",
+        "description": "Initialize multi-tenant context and isolation if enabled",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@variables('PipelineConfig').enterpriseFeatures.multiTenantSupport"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Set Tenant Context",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "TenantContext",
+                "value": {
+                  "tenantId": "@coalesce(pipeline().parameters.TenantId, 'default')",
+                  "isolationLevel": "strict",
+                  "resourcePrefix": "@concat('tenant-', coalesce(pipeline().parameters.TenantId, 'default'))",
+                  "complianceRequirements": "@pipeline().parameters.ComplianceMode",
+                  "dataResidency": "@pipeline().parameters.Environment"
+                }
+              }
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Set Default Context",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "TenantContext",
+                "value": {
+                  "tenantId": "single-tenant",
+                  "isolationLevel": "none",
+                  "resourcePrefix": "",
+                  "complianceRequirements": "@pipeline().parameters.ComplianceMode"
+                }
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Initialize Enhanced Pipeline Parameters",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      },
+      {
+        "name": "Approval Workflow Check",
+        "type": "IfCondition",
+        "description": "Check if approval workflow is required for this operation",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@and(variables('PipelineConfig').enterpriseFeatures.approvalWorkflowEnabled, equals(pipeline().parameters.Environment, 'Production'))"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Request Approval",
+              "type": "WebActivity",
+              "description": "Submit approval request for production operation",
+              "typeProperties": {
+                "url": "@pipeline().parameters.ApprovalWebhookUrl",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+                },
+                "body": {
+                  "requestType": "BackupApproval",
+                  "executionId": "@variables('PipelineConfig').executionId",
+                  "correlationId": "@variables('PipelineConfig').correlationId",
+                  "environment": "@pipeline().parameters.Environment",
+                  "operation": {
+                    "type": "FabricLakehouseBackup",
+                    "lakehouse": "@pipeline().parameters.SourceLakehouseName",
+                    "backupLocation": "@pipeline().parameters.BackupLocation",
+                    "backupMode": "@pipeline().parameters.BackupMode",
+                    "enableCleanup": "@pipeline().parameters.EnableCleanup"
+                  },
+                  "businessJustification": "Scheduled backup operation for data protection",
+                  "riskAssessment": "Low - Standard backup procedure",
+                  "estimatedDuration": "2 hours",
+                  "approvers": ["backup-admin@company.com", "data-governance@company.com"],
+                  "tenantContext": "@variables('TenantContext')",
+                  "timestamp": "@utcnow()"
+                }
+              },
+              "policy": {
+                "timeout": "04:00:00",
+                "retry": 3,
+                "retryIntervalInSeconds": 300
+              }
+            },
+            {
+              "name": "Wait for Approval",
+              "type": "Until",
+              "typeProperties": {
+                "expression": {
+                  "type": "Expression",
+                  "value": "@not(equals(activity('Check Approval Status').output.status, 'Pending'))"
+                },
+                "activities": [
+                  {
+                    "name": "Check Approval Status",
+                    "type": "WebActivity",
+                    "typeProperties": {
+                      "url": "@concat(pipeline().parameters.ApprovalWebhookUrl, '/status/', variables('PipelineConfig').correlationId)",
+                      "method": "GET",
+                      "headers": {
+                        "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)"
+                      }
+                    },
+                    "policy": {
+                      "timeout": "00:02:00",
+                      "retry": 2
+                    }
+                  },
+                  {
+                    "name": "Wait Interval",
+                    "type": "Wait",
+                    "typeProperties": {
+                      "waitTimeInSeconds": 300
+                    },
+                    "dependsOn": [
+                      {
+                        "activity": "Check Approval Status",
+                        "dependencyConditions": ["Completed"]
+                      }
+                    ]
+                  }
+                ],
+                "timeout": "04:00:00"
+              },
+              "dependsOn": [
+                {
+                  "activity": "Request Approval",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            },
+            {
+              "name": "Process Approval Result",
+              "type": "IfCondition",
+              "typeProperties": {
+                "expression": {
+                  "type": "Expression",
+                  "value": "@equals(activity('Check Approval Status').output.status, 'Approved')"
+                },
+                "ifTrueActivities": [
+                  {
+                    "name": "Set Approval Approved",
+                    "type": "SetVariable",
+                    "typeProperties": {
+                      "variableName": "ApprovalStatus",
+                      "value": "Approved"
+                    }
+                  }
+                ],
+                "ifFalseActivities": [
+                  {
+                    "name": "Set Approval Rejected",
+                    "type": "SetVariable",
+                    "typeProperties": {
+                      "variableName": "ApprovalStatus",
+                      "value": "Rejected"
+                    }
+                  },
+                  {
+                    "name": "Fail Approval Rejected",
+                    "type": "Fail",
+                    "typeProperties": {
+                      "message": "Operation rejected by approval workflow",
+                      "errorCode": "ApprovalRejected"
+                    },
+                    "dependsOn": [
+                      {
+                        "activity": "Set Approval Rejected",
+                        "dependencyConditions": ["Succeeded"]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "dependsOn": [
+                {
+                  "activity": "Wait for Approval",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Skip Approval",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "ApprovalStatus",
+                "value": "NotRequired"
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Initialize Tenant Context",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      },
+      {
+        "name": "Create Change Management Ticket",
+        "type": "IfCondition",
+        "description": "Create change management ticket if enabled",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@variables('PipelineConfig').enterpriseFeatures.changeManagementEnabled"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Create ServiceNow Ticket",
+              "type": "WebActivity",
+              "description": "Create change ticket in ServiceNow",
+              "typeProperties": {
+                "url": "@concat(pipeline().parameters.ServiceNowIntegration, '/api/now/table/change_request')",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)"
+                },
+                "body": {
+                  "short_description": "@concat('Fabric Lakehouse Backup - ', pipeline().parameters.SourceLakehouseName)",
+                  "description": "@concat('Automated backup operation for Fabric Lakehouse: ', pipeline().parameters.SourceLakehouseName, '. Execution ID: ', variables('PipelineConfig').executionId)",
+                  "category": "Data Management",
+                  "subcategory": "Backup Operations",
+                  "priority": "3",
+                  "risk": "Low",
+                  "impact": "Medium",
+                  "type": "Standard",
+                  "state": "Implement",
+                  "requested_by": "fabric-automation@company.com",
+                  "assignment_group": "Data Engineering",
+                  "business_service": "Fabric Lakehouse Platform",
+                  "cmdb_ci": "@pipeline().parameters.SourceLakehouseName",
+                  "start_date": "@utcnow()",
+                  "end_date": "@addHours(utcnow(), 4)",
+                  "work_notes": "@concat('Correlation ID: ', variables('PipelineConfig').correlationId, '\nEnvironment: ', pipeline().parameters.Environment, '\nTenant: ', variables('TenantContext').tenantId)",
+                  "u_correlation_id": "@variables('PipelineConfig').correlationId"
+                }
+              },
+              "policy": {
+                "timeout": "00:05:00",
+                "retry": 3,
+                "retryIntervalInSeconds": 30
+              }
+            },
+            {
+              "name": "Store Change Ticket Info",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "ChangeManagementTicket",
+                "value": {
+                  "ticketNumber": "@activity('Create ServiceNow Ticket').output.result.number",
+                  "ticketSysId": "@activity('Create ServiceNow Ticket').output.result.sys_id",
+                  "status": "Created",
+                  "createdTime": "@utcnow()",
+                  "correlationId": "@variables('PipelineConfig').correlationId"
+                }
+              },
+              "dependsOn": [
+                {
+                  "activity": "Create ServiceNow Ticket",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Skip Change Management",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "ChangeManagementTicket",
+                "value": {
+                  "status": "NotEnabled",
+                  "message": "Change management not enabled for this execution"
+                }
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Approval Workflow Check",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      },
+      {
+        "name": "Data Classification and Sensitivity Scan",
+        "type": "IfCondition",
+        "description": "Perform automatic data classification and sensitivity labeling",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@variables('PipelineConfig').enterpriseFeatures.dataClassificationEnabled"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Execute Data Classification",
+              "type": "WebActivity",
+              "description": "Scan lakehouse for sensitive data and apply classifications",
+              "typeProperties": {
+                "url": "@concat(pipeline().parameters.MonitoringWebhookUrl, '/data-classification/scan')",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+                },
+                "body": {
+                  "scanType": "comprehensive",
+                  "lakehouseName": "@pipeline().parameters.SourceLakehouseName",
+                  "complianceMode": "@pipeline().parameters.ComplianceMode",
+                  "tenantContext": "@variables('TenantContext')",
+                  "classificationRules": [
+                    "PII_Detection",
+                    "Financial_Data",
+                    "Healthcare_Data",
+                    "Intellectual_Property",
+                    "Customer_Data"
+                  ],
+                  "sensitivityLabels": [
+                    "Public",
+                    "Internal",
+                    "Confidential",
+                    "Highly_Confidential",
+                    "Restricted"
+                  ],
+                  "dataResidencyCheck": true,
+                  "encryptionValidation": true
+                }
+              },
+              "policy": {
+                "timeout": "00:30:00",
+                "retry": 2,
+                "retryIntervalInSeconds": 120
+              }
+            },
+            {
+              "name": "Process Classification Results",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "DataClassificationResult",
+                "value": {
+                  "scanStatus": "@activity('Execute Data Classification').output.status",
+                  "classificationSummary": "@activity('Execute Data Classification').output.summary",
+                  "sensitiveDataFound": "@activity('Execute Data Classification').output.sensitiveDataCount",
+                  "highRiskItems": "@activity('Execute Data Classification').output.highRiskItems",
+                  "complianceScore": "@activity('Execute Data Classification').output.complianceScore",
+                  "recommendedActions": "@activity('Execute Data Classification').output.recommendations",
+                  "timestamp": "@utcnow()"
+                }
+              },
+              "dependsOn": [
+                {
+                  "activity": "Execute Data Classification",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Skip Data Classification",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "DataClassificationResult",
+                "value": {
+                  "scanStatus": "Skipped",
+                  "reason": "Data classification disabled",
+                  "timestamp": "@utcnow()"
+                }
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Create Change Management Ticket",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      },
+      {
+        "name": "Cost Optimization Analysis",
+        "type": "IfCondition",
+        "description": "Perform intelligent cost analysis and optimization recommendations",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@variables('PipelineConfig').enterpriseFeatures.costOptimizationEnabled"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Analyze Cost Patterns",
+              "type": "WebActivity",
+              "description": "Analyze historical costs and recommend optimizations",
+              "typeProperties": {
+                "url": "@concat(pipeline().parameters.MonitoringWebhookUrl, '/cost-optimization/analyze')",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+                },
+                "body": {
+                  "analysisType": "comprehensive",
+                  "resourceScope": {
+                    "lakehouse": "@pipeline().parameters.SourceLakehouseName",
+                    "backupLocation": "@pipeline().parameters.BackupLocation",
+                    "environment": "@pipeline().parameters.Environment"
+                  },
+                  "timeWindow": "30d",
+                  "optimizationAreas": [
+                    "storage_tiering",
+                    "compute_sizing",
+                    "backup_frequency",
+                    "retention_policies",
+                    "compression_strategies",
+                    "regional_optimization"
+                  ],
+                  "businessPriorities": {
+                    "costReduction": 0.7,
+                    "performance": 0.2,
+                    "compliance": 0.1
+                  },
+                  "tenantContext": "@variables('TenantContext')"
+                }
+              },
+              "policy": {
+                "timeout": "00:15:00",
+                "retry": 2,
+                "retryIntervalInSeconds": 60
+              }
+            },
+            {
+              "name": "Process Cost Optimization",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "CostMetrics",
+                "value": {
+                  "analysisStatus": "@activity('Analyze Cost Patterns').output.status",
+                  "currentMonthlyCost": "@activity('Analyze Cost Patterns').output.currentCosts.monthly",
+                  "projectedSavings": "@activity('Analyze Cost Patterns').output.optimizations.potentialSavings",
+                  "recommendations": "@activity('Analyze Cost Patterns').output.recommendations",
+                  "implementationPriority": "@activity('Analyze Cost Patterns').output.prioritizedActions",
+                  "riskAssessment": "@activity('Analyze Cost Patterns').output.riskAnalysis",
+                  "timestamp": "@utcnow()"
+                }
+              },
+              "dependsOn": [
+                {
+                  "activity": "Analyze Cost Patterns",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Skip Cost Optimization",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "CostMetrics",
+                "value": {
+                  "analysisStatus": "Skipped",
+                  "reason": "Cost optimization disabled",
+                  "timestamp": "@utcnow()"
+                }
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Data Classification and Sensitivity Scan",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      },
+      {
+        "name": "Check Circuit Breaker State",
+        "type": "WebActivity",
+        "description": "Check if circuit breaker is open due to previous failures",
+        "typeProperties": {
+          "url": "@concat(pipeline().parameters.MonitoringWebhookUrl, '/circuit-breaker/status')",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+            "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+          }
+        },
+        "policy": {
+          "timeout": "00:02:00",
+          "retry": 2,
+          "retryIntervalInSeconds": 30
+        },
+        "dependsOn": [
+          {
+            "activity": "Cost Optimization Analysis",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      },
+      {
+        "name": "Circuit Breaker Check",
+        "type": "IfCondition",
+        "description": "Evaluate circuit breaker state and proceed or fail accordingly",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@not(equals(activity('Check Circuit Breaker State').output.state, 'Open'))"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Log Pipeline Start",
+              "type": "WebActivity",
+              "description": "Log comprehensive pipeline start information",
+              "typeProperties": {
+                "url": "@pipeline().parameters.MonitoringWebhookUrl",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+                },
+                "body": {
+                  "eventType": "PipelineStart",
+                  "pipelineName": "@pipeline().Pipeline",
+                  "executionId": "@variables('PipelineConfig').executionId",
+                  "correlationId": "@variables('PipelineConfig').correlationId",
+                  "environment": "@variables('PipelineConfig').environment",
+                  "timestamp": "@variables('PipelineConfig').executionTime",
+                  "version": "@variables('PipelineConfig').pipelineVersion",
+                  "parameters": {
+                    "sourceLakehouse": "@pipeline().parameters.SourceLakehouseName",
+                    "backupLocation": "@pipeline().parameters.BackupLocation",
+                    "backupMode": "@pipeline().parameters.BackupMode",
+                    "enableCleanup": "@pipeline().parameters.EnableCleanup",
+                    "retentionDays": "@pipeline().parameters.CleanupRetentionDays"
+                  },
+                  "features": {
+                    "healthCheckEnabled": "@variables('PipelineConfig').healthCheckEnabled",
+                    "securityScanEnabled": "@variables('PipelineConfig').securityScanEnabled",
+                    "dataQualityCheckEnabled": "@variables('PipelineConfig').dataQualityCheckEnabled"
+                  },
+                  "executionContext": "@variables('PipelineConfig').executionContext"
+                }
+              },
+              "policy": {
+                "timeout": "00:03:00",
+                "retry": 3,
+                "retryIntervalInSeconds": 30
+              }
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Log Circuit Breaker Open",
+              "type": "WebActivity",
+              "typeProperties": {
+                "url": "@pipeline().parameters.MonitoringWebhookUrl",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+                },
+                "body": {
+                  "eventType": "CircuitBreakerOpen",
+                  "executionId": "@variables('PipelineConfig').executionId",
+                  "message": "Pipeline execution blocked by open circuit breaker",
+                  "timestamp": "@utcnow()",
+                  "severity": "Critical"
+                }
+              }
+            },
+            {
+              "name": "Fail Circuit Breaker Open",
+              "type": "Fail",
+              "typeProperties": {
+                "message": "Pipeline execution blocked by circuit breaker",
+                "errorCode": "CircuitBreakerOpen"
+              },
+              "dependsOn": [
+                {
+                  "activity": "Log Circuit Breaker Open",
+                  "dependencyConditions": ["Completed"]
+                }
+              ]
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Check Circuit Breaker State",
+            "dependencyConditions": ["Completed"]
+          }
+        ]
+      },
+      {
+        "name": "Pre-Execution Health Check",
+        "type": "IfCondition",
+        "description": "Perform comprehensive health checks before execution",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@variables('PipelineConfig').healthCheckEnabled"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Check System Health",
+              "type": "WebActivity",
+              "description": "Validate system health and readiness",
+              "typeProperties": {
+                "url": "@concat(pipeline().parameters.MonitoringWebhookUrl, '/health/check')",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+                },
+                "body": {
+                  "checkType": "pre-execution",
+                  "services": [
+                    "fabric-lakehouse",
+                    "storage-account",
+                    "monitoring-system"
+                  ],
+                  "lakehouse": "@pipeline().parameters.SourceLakehouseName",
+                  "storageLocation": "@pipeline().parameters.BackupLocation"
+                }
+              },
+              "policy": {
+                "timeout": "00:05:00",
+                "retry": 2,
+                "retryIntervalInSeconds": 30
+              }
+            },
+            {
+              "name": "Evaluate Health Check",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "HealthCheckStatus",
+                "value": "@if(equals(activity('Check System Health').output.status, 'Healthy'), 'Passed', 'Failed')"
+              },
+              "dependsOn": [
+                {
+                  "activity": "Check System Health",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Skip Health Check",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "HealthCheckStatus",
+                "value": "Skipped"
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Circuit Breaker Check",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      },
+      {
+        "name": "Security Validation Scan",
+        "type": "IfCondition",
+        "description": "Perform security validation and compliance checks",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@and(variables('PipelineConfig').securityScanEnabled, equals(variables('HealthCheckStatus'), 'Passed'))"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Run Security Scan",
+              "type": "WebActivity",
+              "description": "Execute comprehensive security validation",
+              "typeProperties": {
+                "url": "@concat(pipeline().parameters.MonitoringWebhookUrl, '/security/scan')",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+                },
+                "body": {
+                  "scanType": "pre-backup",
+                  "resources": [
+                    "@pipeline().parameters.SourceLakehouseName",
+                    "@pipeline().parameters.BackupLocation"
+                  ],
+                  "compliance": [
+                    "GDPR",
+                    "SOX",
+                    "HIPAA"
+                  ],
+                  "checkAccessPatterns": true,
+                  "validateEncryption": true
+                }
+              },
+              "policy": {
+                "timeout": "00:10:00",
+                "retry": 2,
+                "retryIntervalInSeconds": 60
+              }
+            },
+            {
+              "name": "Process Security Results",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "SecurityScanResult",
+                "value": {
+                  "status": "@activity('Run Security Scan').output.status",
+                  "findings": "@activity('Run Security Scan').output.findings",
+                  "riskScore": "@activity('Run Security Scan').output.riskScore",
+                  "timestamp": "@utcnow()"
+                }
+              },
+              "dependsOn": [
+                {
+                  "activity": "Run Security Scan",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Skip Security Scan",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "SecurityScanResult",
+                "value": {
+                  "status": "Skipped",
+                  "reason": "@if(not(variables('PipelineConfig').securityScanEnabled), 'Disabled', 'Health check failed')",
+                  "timestamp": "@utcnow()"
+                }
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Pre-Execution Health Check",
+            "dependencyConditions": ["Completed"]
+          }
+        ]
+      },
+      {
+        "name": "Enhanced Configuration Validation",
+        "type": "IfCondition",
+        "description": "Comprehensive validation with security and compliance checks",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@and(and(and(not(empty(pipeline().parameters.SourceLakehouseName)), not(empty(pipeline().parameters.BackupLocation))), and(not(empty(pipeline().parameters.MonitoringWebhookUrl)), not(empty(pipeline().parameters.Environment)))), or(not(variables('PipelineConfig').securityScanEnabled), equals(variables('SecurityScanResult').status, 'Passed')))"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Validate Storage Access Enhanced",
+              "type": "WebActivity",
+              "description": "Enhanced storage validation with security checks",
+              "typeProperties": {
+                "url": "@concat(pipeline().parameters.BackupLocation, '?comp=list&maxresults=1')",
+                "method": "GET",
+                "authentication": {
+                  "type": "MSI",
+                  "resource": "https://storage.azure.com/"
+                },
+                "headers": {
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId",
+                  "X-Security-Token": "@pipeline().parameters.MonitoringToken"
+                }
+              },
+              "policy": {
+                "timeout": "00:05:00",
+                "retry": 3,
+                "retryIntervalInSeconds": 60,
+                "secureOutput": true,
+                "secureInput": true
+              }
+            },
+            {
+              "name": "Validate Lakehouse Connectivity",
+              "type": "WebActivity",
+              "description": "Verify Fabric Lakehouse connectivity and permissions",
+              "typeProperties": {
+                "url": "@concat(pipeline().parameters.MonitoringWebhookUrl, '/fabric/validate')",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+                },
+                "body": {
+                  "lakehouseName": "@pipeline().parameters.SourceLakehouseName",
+                  "validatePermissions": true,
+                  "checkConnectivity": true,
+                  "environment": "@pipeline().parameters.Environment"
+                }
+              },
+              "policy": {
+                "timeout": "00:05:00",
+                "retry": 3,
+                "retryIntervalInSeconds": 30
+              },
+              "dependsOn": [
+                {
+                  "activity": "Validate Storage Access Enhanced",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            },
+            {
+              "name": "Set Enhanced Configuration Valid",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "ValidationStatus",
+                "value": "Valid"
+              },
+              "dependsOn": [
+                {
+                  "activity": "Validate Lakehouse Connectivity",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Log Enhanced Validation Failure",
+              "type": "WebActivity",
+              "typeProperties": {
+                "url": "@pipeline().parameters.MonitoringWebhookUrl",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+                },
+                "body": {
+                  "eventType": "ValidationFailure",
+                  "executionId": "@variables('PipelineConfig').executionId",
+                  "message": "Enhanced validation failed",
+                  "details": {
+                    "missingParameters": "@if(empty(pipeline().parameters.SourceLakehouseName), 'SourceLakehouseName,', '')@if(empty(pipeline().parameters.BackupLocation), 'BackupLocation,', '')@if(empty(pipeline().parameters.MonitoringWebhookUrl), 'MonitoringWebhookUrl,', '')",
+                    "securityScanStatus": "@variables('SecurityScanResult').status",
+                    "healthCheckStatus": "@variables('HealthCheckStatus')"
+                  },
+                  "timestamp": "@utcnow()",
+                  "severity": "High"
+                }
+              }
+            },
+            {
+              "name": "Set Enhanced Configuration Invalid",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "ValidationStatus",
+                "value": "Invalid"
+              },
+              "dependsOn": [
+                {
+                  "activity": "Log Enhanced Validation Failure",
+                  "dependencyConditions": ["Completed"]
+                }
+              ]
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Security Validation Scan",
+            "dependencyConditions": ["Completed"]
+          }
+        ]
+      },
+      {
+        "name": "Execute Backup with Retry Logic",
+        "type": "IfCondition",
+        "description": "Execute backup notebook with enhanced retry and monitoring",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@equals(variables('ValidationStatus'), 'Valid')"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Execute Enhanced Backup Notebook",
+              "type": "SynapseNotebook",
+              "description": "Run backup notebook with comprehensive error handling and monitoring",
+              "typeProperties": {
+                "notebook": {
+                  "referenceName": "Fabric_Lakehouse_Backup",
+                  "type": "NotebookReference"
+                },
+                "parameters": {
+                  "lakehouse_name": {
+                    "value": "@pipeline().parameters.SourceLakehouseName",
+                    "type": "string"
+                  },
+                  "backup_location": {
+                    "value": "@pipeline().parameters.BackupLocation",
+                    "type": "string"
+                  },
+                  "backup_mode": {
+                    "value": "@pipeline().parameters.BackupMode",
+                    "type": "string"
+                  },
+                  "correlation_id": {
+                    "value": "@variables('PipelineConfig').correlationId",
+                    "type": "string"
+                  },
+                  "execution_id": {
+                    "value": "@variables('PipelineConfig').executionId",
+                    "type": "string"
+                  },
+                  "environment": {
+                    "value": "@pipeline().parameters.Environment",
+                    "type": "string"
+                  },
+                  "monitoring_webhook": {
+                    "value": "@pipeline().parameters.MonitoringWebhookUrl",
+                    "type": "string"
+                  },
+                  "enable_data_quality_check": {
+                    "value": "@variables('PipelineConfig').dataQualityCheckEnabled",
+                    "type": "bool"
+                  }
+                },
+                "conf": {
+                  "spark.sql.adaptive.enabled": "true",
+                  "spark.sql.adaptive.coalescePartitions.enabled": "true"
+                }
+              },
+              "policy": {
+                "timeout": "02:00:00",
+                "retry": "@variables('PipelineConfig').maxRetryAttempts",
+                "retryIntervalInSeconds": 300,
+                "secureOutput": true,
+                "secureInput": true
+              }
+            },
+            {
+              "name": "Process Backup Results",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "BackupResult",
+                "value": {
+                  "status": "@activity('Execute Enhanced Backup Notebook').output.runStatus",
+                  "executionDetails": "@activity('Execute Enhanced Backup Notebook').output",
+                  "duration": "@activity('Execute Enhanced Backup Notebook').output.runDurationInSeconds",
+                  "timestamp": "@utcnow()",
+                  "correlationId": "@variables('PipelineConfig').correlationId"
+                }
+              },
+              "dependsOn": [
+                {
+                  "activity": "Execute Enhanced Backup Notebook",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            },
+            {
+              "name": "Log Backup Success",
+              "type": "WebActivity",
+              "typeProperties": {
+                "url": "@pipeline().parameters.MonitoringWebhookUrl",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+                },
+                "body": {
+                  "eventType": "BackupCompleted",
+                  "executionId": "@variables('PipelineConfig').executionId",
+                  "correlationId": "@variables('PipelineConfig').correlationId",
+                  "message": "Backup completed successfully",
+                  "details": "@variables('BackupResult')",
+                  "timestamp": "@utcnow()",
+                  "severity": "Info"
+                }
+              },
+              "policy": {
+                "timeout": "00:02:00",
+                "retry": 2
+              },
+              "dependsOn": [
+                {
+                  "activity": "Process Backup Results",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Skip Backup Due to Validation",
+              "type": "WebActivity",
+              "typeProperties": {
+                "url": "@pipeline().parameters.MonitoringWebhookUrl",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+                },
+                "body": {
+                  "eventType": "BackupSkipped",
+                  "executionId": "@variables('PipelineConfig').executionId",
+                  "message": "Backup skipped due to validation failure",
+                  "reason": "@variables('ValidationStatus')",
+                  "timestamp": "@utcnow()",
+                  "severity": "Warning"
+                }
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Enhanced Configuration Validation",
+            "dependencyConditions": ["Completed"]
+          }
+        ]
+      },
+      {
+        "name": "Execute Cleanup with Enhanced Logic",
+        "type": "IfCondition",
+        "description": "Execute cleanup with enhanced monitoring and data quality checks",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@and(and(pipeline().parameters.EnableCleanup, equals(variables('ValidationStatus'), 'Valid')), or(equals(variables('BackupResult').status, 'Succeeded'), empty(variables('BackupResult'))))"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Execute Enhanced Cleanup Notebook",
+              "type": "SynapseNotebook",
+              "description": "Run cleanup notebook with comprehensive monitoring",
+              "typeProperties": {
+                "notebook": {
+                  "referenceName": "Fabric_Lakehouse_Cleanup",
+                  "type": "NotebookReference"
+                },
+                "parameters": {
+                  "lakehouse_name": {
+                    "value": "@pipeline().parameters.SourceLakehouseName",
+                    "type": "string"
+                  },
+                  "backup_location": {
+                    "value": "@pipeline().parameters.BackupLocation",
+                    "type": "string"
+                  },
+                  "retention_days": {
+                    "value": "@pipeline().parameters.CleanupRetentionDays",
+                    "type": "int"
+                  },
+                  "correlation_id": {
+                    "value": "@variables('PipelineConfig').correlationId",
+                    "type": "string"
+                  },
+                  "execution_id": {
+                    "value": "@variables('PipelineConfig').executionId",
+                    "type": "string"
+                  },
+                  "environment": {
+                    "value": "@pipeline().parameters.Environment",
+                    "type": "string"
+                  },
+                  "monitoring_webhook": {
+                    "value": "@pipeline().parameters.MonitoringWebhookUrl",
+                    "type": "string"
+                  },
+                  "backup_success": {
+                    "value": "@coalesce(equals(variables('BackupResult').status, 'Succeeded'), true)",
+                    "type": "bool"
+                  }
+                }
+              },
+              "policy": {
+                "timeout": "01:00:00",
+                "retry": "@variables('PipelineConfig').maxRetryAttempts",
+                "retryIntervalInSeconds": 180,
+                "secureOutput": true,
+                "secureInput": true
+              }
+            },
+            {
+              "name": "Process Cleanup Results",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "CleanupResult",
+                "value": {
+                  "status": "@activity('Execute Enhanced Cleanup Notebook').output.runStatus",
+                  "executionDetails": "@activity('Execute Enhanced Cleanup Notebook').output",
+                  "duration": "@activity('Execute Enhanced Cleanup Notebook').output.runDurationInSeconds",
+                  "timestamp": "@utcnow()",
+                  "correlationId": "@variables('PipelineConfig').correlationId"
+                }
+              },
+              "dependsOn": [
+                {
+                  "activity": "Execute Enhanced Cleanup Notebook",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Skip Cleanup",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "CleanupResult",
+                "value": {
+                  "status": "Skipped",
+                  "reason": "@if(not(pipeline().parameters.EnableCleanup), 'Disabled', if(not(equals(variables('ValidationStatus'), 'Valid')), 'Validation Failed', 'Backup Failed'))",
+                  "timestamp": "@utcnow()",
+                  "correlationId": "@variables('PipelineConfig').correlationId"
+                }
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Execute Backup with Retry Logic",
+            "dependencyConditions": ["Completed"]
+          }
+        ]
+      },
+      {
+        "name": "Generate Enhanced Execution Report",
+        "type": "SetVariable",
+        "description": "Create comprehensive execution report with metrics and insights",
+        "typeProperties": {
+          "variableName": "ExecutionMetrics",
+          "value": {
+            "executionSummary": {
+              "executionId": "@variables('PipelineConfig').executionId",
+              "correlationId": "@variables('PipelineConfig').correlationId",
+              "environment": "@variables('PipelineConfig').environment",
+              "startTime": "@variables('PipelineConfig').startTime",
+              "endTime": "@utcnow()",
+              "totalDuration": "@div(sub(ticks(utcnow()), ticks(variables('PipelineConfig').startTime)), 600000000)",
+              "pipelineVersion": "@variables('PipelineConfig').pipelineVersion"
+            },
+            "validationResults": {
+              "configurationStatus": "@variables('ValidationStatus')",
+              "healthCheckStatus": "@variables('HealthCheckStatus')",
+              "securityScanResult": "@variables('SecurityScanResult')"
+            },
+            "operationResults": {
+              "backupResult": "@variables('BackupResult')",
+              "cleanupResult": "@variables('CleanupResult')"
+            },
+            "performanceMetrics": {
+              "backupDuration": "@coalesce(variables('BackupResult').duration, 0)",
+              "cleanupDuration": "@coalesce(variables('CleanupResult').duration, 0)",
+              "retryCount": "@variables('RetryCount')"
+            },
+            "qualityMetrics": {
+              "dataQualityCheckEnabled": "@variables('PipelineConfig').dataQualityCheckEnabled",
+              "securityScanEnabled": "@variables('PipelineConfig').securityScanEnabled",
+              "healthCheckEnabled": "@variables('PipelineConfig').healthCheckEnabled"
+            },
+            "enterpriseMetrics": {
+              "costOptimization": "@variables('CostMetrics')",
+              "dataClassification": "@variables('DataClassificationResult')",
+              "complianceStatus": "@variables('ComplianceStatus')",
+              "approvalStatus": "@variables('ApprovalStatus')",
+              "changeManagement": "@variables('ChangeManagementTicket')",
+              "disasterRecoveryStatus": "@variables('DisasterRecoveryStatus')",
+              "tenantContext": "@variables('TenantContext')"
+            },
+            "governanceMetrics": {
+              "dataLineageTracked": "@variables('DataLineageMetadata')",
+              "sensitivityLabelsApplied": "@coalesce(variables('DataClassificationResult').sensitiveDataFound, 0)",
+              "complianceScore": "@coalesce(variables('DataClassificationResult').complianceScore, 0)",
+              "riskScore": "@coalesce(variables('SecurityScanResult').riskScore, 0)"
+            }
+          }
+        },
+        "dependsOn": [
+          {
+            "activity": "Execute Cleanup with Enhanced Logic",
+            "dependencyConditions": ["Completed"]
+          }
+        ]
+      },
+      {
+        "name": "Send Enhanced Final Report",
+        "type": "WebActivity",
+        "description": "Send comprehensive final report with all execution details",
+        "typeProperties": {
+          "url": "@pipeline().parameters.MonitoringWebhookUrl",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+            "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+          },
+          "body": {
+            "eventType": "PipelineCompleted",
+            "executionReport": "@variables('ExecutionMetrics')",
+            "status": "@if(and(or(equals(variables('BackupResult').status, 'Succeeded'), empty(variables('BackupResult'))), or(equals(variables('CleanupResult').status, 'Succeeded'), equals(variables('CleanupResult').status, 'Skipped'))), 'Success', 'Failed')",
+            "timestamp": "@utcnow()",
+            "severity": "Info"
+          }
+        },
+        "policy": {
+          "timeout": "00:05:00",
+          "retry": 3,
+          "retryIntervalInSeconds": 60
+        },
+        "dependsOn": [
+          {
+            "activity": "Generate Enhanced Execution Report",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      },
+      {
+        "name": "Disaster Recovery Replication",
+        "type": "IfCondition",
+        "description": "Replicate backup to secondary location for disaster recovery",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@and(variables('PipelineConfig').enterpriseFeatures.disasterRecoveryEnabled, not(empty(pipeline().parameters.SecondaryBackupLocation)))"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Initiate DR Replication",
+              "type": "WebActivity",
+              "description": "Start disaster recovery replication process",
+              "typeProperties": {
+                "url": "@concat(pipeline().parameters.MonitoringWebhookUrl, '/disaster-recovery/replicate')",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+                  "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+                },
+                "body": {
+                  "replicationType": "async",
+                  "sourceLocation": "@pipeline().parameters.BackupLocation",
+                  "targetLocation": "@pipeline().parameters.SecondaryBackupLocation",
+                  "executionId": "@variables('PipelineConfig').executionId",
+                  "lakehouseName": "@pipeline().parameters.SourceLakehouseName",
+                  "businessContinuityPlan": "@pipeline().parameters.BusinessContinuityPlan",
+                  "encryptionInTransit": true,
+                  "compressionEnabled": true,
+                  "integrityChecks": true,
+                  "tenantContext": "@variables('TenantContext')"
+                }
+              },
+              "policy": {
+                "timeout": "04:00:00",
+                "retry": 3,
+                "retryIntervalInSeconds": 600
+              }
+            },
+            {
+              "name": "Update DR Status",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "DisasterRecoveryStatus",
+                "value": "Replicated"
+              },
+              "dependsOn": [
+                {
+                  "activity": "Initiate DR Replication",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ]
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Skip DR Replication",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "DisasterRecoveryStatus",
+                "value": "NotConfigured"
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Send Enhanced Final Report",
+            "dependencyConditions": ["Completed"]
+          }
+        ]
+      },
+      {
+        "name": "Final Circuit Breaker Update",
+        "type": "WebActivity",
+        "description": "Update circuit breaker state based on comprehensive execution results",
+        "typeProperties": {
+          "url": "@concat(pipeline().parameters.MonitoringWebhookUrl, '/circuit-breaker/update')",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "@concat('Bearer ', pipeline().parameters.MonitoringToken)",
+            "X-Correlation-ID": "@variables('PipelineConfig').correlationId"
+          },
+          "body": {
+            "executionId": "@variables('PipelineConfig').executionId",
+            "success": "@if(and(or(equals(variables('BackupResult').status, 'Succeeded'), empty(variables('BackupResult'))), or(equals(variables('CleanupResult').status, 'Succeeded'), equals(variables('CleanupResult').status, 'Skipped'))), true, false)",
+            "timestamp": "@utcnow()",
+            "metrics": "@variables('ExecutionMetrics')",
+            "enterpriseMetrics": {
+              "costOptimization": "@variables('CostMetrics')",
+              "predictiveInsights": "@variables('PredictiveInsights')",
+              "dataClassification": "@variables('DataClassificationResult')",
+              "disasterRecovery": "@variables('DisasterRecoveryStatus')",
+              "changeManagement": "@variables('ChangeManagementTicket')",
+              "dataLineage": "@variables('DataLineageMetadata')"
+            },
+            "businessImpact": {
+              "operationalRisk": "@if(equals(variables('DisasterRecoveryStatus'), 'Replicated'), 'Low', 'Medium')",
+              "complianceScore": "@coalesce(variables('DataClassificationResult').complianceScore, 0)",
+              "costEfficiency": "@coalesce(variables('CostMetrics').projectedSavings, 0)"
+            }
+          }
+        },
+        "policy": {
+          "timeout": "00:02:00",
+          "retry": 2,
+          "retryIntervalInSeconds": 30
+        },
+        "dependsOn": [
+          {
+            "activity": "Disaster Recovery Replication",
+            "dependencyConditions": ["Completed"]
+          }
+        ]
+      }
+    ],
+    "annotations": [
+      "Production",
+      "Enhanced",
+      "CircuitBreaker",
+      "SecurityScan",
+      "HealthCheck",
+      "DataQuality"
+    ],
+    "folder": {
+      "name": "Fabric Lakehouse Operations/Enhanced"
+    }
+  }
+}
