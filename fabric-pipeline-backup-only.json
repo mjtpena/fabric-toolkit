@@ -1,0 +1,123 @@
+{
+  "name": "Fabric Lakehouse Backup Only Pipeline",
+  "description": "Simplified pipeline for backup-only operations without cleanup",
+  "version": "1.0",
+  "pipeline": {
+    "activities": [
+      {
+        "name": "Validate Backup Parameters",
+        "type": "IfCondition",
+        "description": "Validate required backup parameters",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@and(not(empty(pipeline().parameters.SourceLakehouseName)), not(empty(pipeline().parameters.BackupLocation)))"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Execute Backup",
+              "type": "FabricNotebook",
+              "typeProperties": {
+                "notebookPath": "Fabric_Lakehouse_Backup.ipynb",
+                "parameters": {
+                  "source_lakehouse_name": {
+                    "value": "@pipeline().parameters.SourceLakehouseName",
+                    "type": "Expression"
+                  },
+                  "backup_location": {
+                    "value": "@pipeline().parameters.BackupLocation",
+                    "type": "Expression"
+                  },
+                  "backup_mode": {
+                    "value": "@pipeline().parameters.BackupMode",
+                    "type": "Expression"
+                  },
+                  "table_filter": {
+                    "value": "@pipeline().parameters.TableFilter",
+                    "type": "Expression"
+                  },
+                  "compression_enabled": {
+                    "value": "@pipeline().parameters.CompressionEnabled",
+                    "type": "Expression"
+                  },
+                  "parallel_operations": {
+                    "value": "@pipeline().parameters.ParallelOperations",
+                    "type": "Expression"
+                  },
+                  "use_managed_identity": {
+                    "value": "@pipeline().parameters.UseManagedIdentity",
+                    "type": "Expression"
+                  },
+                  "enable_validation": {
+                    "value": "@pipeline().parameters.EnableValidation",
+                    "type": "Expression"
+                  },
+                  "generate_manifest": {
+                    "value": "@pipeline().parameters.GenerateManifest",
+                    "type": "Expression"
+                  }
+                }
+              }
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Fail - Missing Parameters",
+              "type": "Fail",
+              "typeProperties": {
+                "message": "Required parameters missing: SourceLakehouseName and BackupLocation",
+                "errorCode": "MISSING_PARAMS"
+              }
+            }
+          ]
+        },
+        "dependsOn": []
+      }
+    ],
+    "parameters": {
+      "SourceLakehouseName": {
+        "type": "string",
+        "description": "Name of the source lakehouse to backup"
+      },
+      "BackupLocation": {
+        "type": "string",
+        "description": "Destination path for backups"
+      },
+      "BackupMode": {
+        "type": "string",
+        "defaultValue": "full",
+        "description": "Backup mode: full, incremental, or differential"
+      },
+      "TableFilter": {
+        "type": "string",
+        "defaultValue": "*",
+        "description": "Tables to include in backup"
+      },
+      "CompressionEnabled": {
+        "type": "string",
+        "defaultValue": "True",
+        "description": "Enable compression"
+      },
+      "ParallelOperations": {
+        "type": "string",
+        "defaultValue": "4",
+        "description": "Parallel operations count"
+      },
+      "UseManagedIdentity": {
+        "type": "string",
+        "defaultValue": "True",
+        "description": "Use managed identity"
+      },
+      "EnableValidation": {
+        "type": "string",
+        "defaultValue": "True",
+        "description": "Enable backup validation"
+      },
+      "GenerateManifest": {
+        "type": "string",
+        "defaultValue": "True",
+        "description": "Generate manifest file"
+      }
+    }
+  }
+}

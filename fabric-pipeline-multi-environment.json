@@ -1,0 +1,241 @@
+{
+  "name": "Fabric Lakehouse Multi-Environment Pipeline",
+  "description": "Pipeline for managing backups across multiple environments with different schedules",
+  "version": "1.0",
+  "pipeline": {
+    "activities": [
+      {
+        "name": "Initialize Environment Config",
+        "type": "SetVariable",
+        "description": "Set up environment-specific configuration",
+        "typeProperties": {
+          "variableName": "EnvironmentConfig",
+          "value": {
+            "development": {
+              "backupMode": "incremental",
+              "retentionDays": "7",
+              "cleanupEnabled": true,
+              "preservePolicy": "daily"
+            },
+            "staging": {
+              "backupMode": "full",
+              "retentionDays": "14",
+              "cleanupEnabled": true,
+              "preservePolicy": "weekly"
+            },
+            "production": {
+              "backupMode": "full",
+              "retentionDays": "90",
+              "cleanupEnabled": true,
+              "preservePolicy": "monthly"
+            }
+          }
+        },
+        "dependsOn": []
+      },
+      {
+        "name": "Get Environment Settings",
+        "type": "SetVariable",
+        "description": "Extract settings for current environment",
+        "typeProperties": {
+          "variableName": "CurrentEnvironmentSettings",
+          "value": "@variables('EnvironmentConfig')[pipeline().parameters.Environment]"
+        },
+        "dependsOn": [
+          {
+            "activity": "Initialize Environment Config",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      },
+      {
+        "name": "Process Multiple Lakehouses",
+        "type": "ForEach",
+        "description": "Iterate through all lakehouses for backup",
+        "typeProperties": {
+          "items": {
+            "type": "Expression",
+            "value": "@pipeline().parameters.LakehouseList"
+          },
+          "isSequential": "@pipeline().parameters.SequentialProcessing",
+          "batchCount": "@pipeline().parameters.BatchSize",
+          "activities": [
+            {
+              "name": "Backup Individual Lakehouse",
+              "type": "ExecutePipeline",
+              "typeProperties": {
+                "pipeline": {
+                  "referenceName": "Fabric Lakehouse Backup Orchestration Pipeline"
+                },
+                "parameters": {
+                  "SourceLakehouseName": {
+                    "value": "@item().name",
+                    "type": "Expression"
+                  },
+                  "BackupLocation": {
+                    "value": "@concat(pipeline().parameters.BaseBackupLocation, '/', item().name)",
+                    "type": "Expression"
+                  },
+                  "BackupWorkspaceId": {
+                    "value": "@item().workspaceId",
+                    "type": "Expression"
+                  },
+                  "Environment": {
+                    "value": "@pipeline().parameters.Environment",
+                    "type": "Expression"
+                  },
+                  "BackupMode": {
+                    "value": "@variables('CurrentEnvironmentSettings').backupMode",
+                    "type": "Expression"
+                  },
+                  "TableFilter": {
+                    "value": "@item().tableFilter",
+                    "type": "Expression"
+                  },
+                  "EnableCleanup": {
+                    "value": "@variables('CurrentEnvironmentSettings').cleanupEnabled",
+                    "type": "Expression"
+                  },
+                  "CleanupMode": {
+                    "value": "age_based",
+                    "type": "Expression"
+                  },
+                  "RetentionDays": {
+                    "value": "@variables('CurrentEnvironmentSettings').retentionDays",
+                    "type": "Expression"
+                  },
+                  "PreservePolicy": {
+                    "value": "@variables('CurrentEnvironmentSettings').preservePolicy",
+                    "type": "Expression"
+                  },
+                  "CleanupDryRun": {
+                    "value": "@pipeline().parameters.CleanupDryRun",
+                    "type": "Expression"
+                  },
+                  "NotificationEnabled": {
+                    "value": "@pipeline().parameters.NotificationEnabled",
+                    "type": "Expression"
+                  },
+                  "NotificationWebhookUrl": {
+                    "value": "@pipeline().parameters.NotificationWebhookUrl",
+                    "type": "Expression"
+                  }
+                },
+                "waitOnCompletion": true
+              }
+            },
+            {
+              "name": "Log Lakehouse Result",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "LakehouseResults",
+                "value": "@union(variables('LakehouseResults'), createObject(item().name, activity('Backup Individual Lakehouse').output))"
+              },
+              "dependsOn": [
+                {
+                  "activity": "Backup Individual Lakehouse",
+                  "dependencyConditions": ["Completed"]
+                }
+              ]
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Get Environment Settings",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      },
+      {
+        "name": "Generate Consolidated Report",
+        "type": "SetVariable",
+        "description": "Create consolidated report for all lakehouses",
+        "typeProperties": {
+          "variableName": "ConsolidatedReport",
+          "value": {
+            "executionId": "@pipeline().RunId",
+            "environment": "@pipeline().parameters.Environment",
+            "executionTime": "@utcnow()",
+            "processedLakehouses": "@length(pipeline().parameters.LakehouseList)",
+            "results": "@variables('LakehouseResults')",
+            "environmentSettings": "@variables('CurrentEnvironmentSettings')"
+          }
+        },
+        "dependsOn": [
+          {
+            "activity": "Process Multiple Lakehouses",
+            "dependencyConditions": ["Completed"]
+          }
+        ]
+      }
+    ],
+    "parameters": {
+      "Environment": {
+        "type": "string",
+        "defaultValue": "development",
+        "description": "Target environment: development, staging, or production"
+      },
+      "LakehouseList": {
+        "type": "array",
+        "defaultValue": [
+          {
+            "name": "lakehouse1",
+            "workspaceId": "workspace-guid-1",
+            "tableFilter": "*"
+          },
+          {
+            "name": "lakehouse2",
+            "workspaceId": "workspace-guid-2",
+            "tableFilter": "sales_*,customer_*"
+          }
+        ],
+        "description": "List of lakehouses to process"
+      },
+      "BaseBackupLocation": {
+        "type": "string",
+        "description": "Base path for all backup locations"
+      },
+      "SequentialProcessing": {
+        "type": "bool",
+        "defaultValue": false,
+        "description": "Process lakehouses sequentially or in parallel"
+      },
+      "BatchSize": {
+        "type": "int",
+        "defaultValue": 3,
+        "description": "Number of parallel lakehouse operations"
+      },
+      "CleanupDryRun": {
+        "type": "string",
+        "defaultValue": "True",
+        "description": "Run cleanup in dry-run mode"
+      },
+      "NotificationEnabled": {
+        "type": "bool",
+        "defaultValue": false,
+        "description": "Enable notifications"
+      },
+      "NotificationWebhookUrl": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "Notification webhook URL"
+      }
+    },
+    "variables": {
+      "EnvironmentConfig": {
+        "type": "Object"
+      },
+      "CurrentEnvironmentSettings": {
+        "type": "Object"
+      },
+      "LakehouseResults": {
+        "type": "Object",
+        "defaultValue": {}
+      },
+      "ConsolidatedReport": {
+        "type": "Object"
+      }
+    }
+  }
+}

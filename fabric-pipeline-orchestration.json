@@ -1,0 +1,601 @@
+{
+  "name": "Fabric Lakehouse Backup Orchestration Pipeline",
+  "description": "Main orchestration pipeline for Microsoft Fabric Lakehouse backup and cleanup operations",
+  "version": "1.0",
+  "pipeline": {
+    "activities": [
+      {
+        "name": "Initialize Pipeline Parameters",
+        "type": "SetVariable",
+        "description": "Set up common parameters for the pipeline execution",
+        "typeProperties": {
+          "variableName": "PipelineConfig",
+          "value": {
+            "executionId": "@pipeline().RunId",
+            "executionTime": "@utcnow()",
+            "environment": "@pipeline().parameters.Environment",
+            "notificationEnabled": "@pipeline().parameters.NotificationEnabled"
+          }
+        },
+        "dependsOn": []
+      },
+      {
+        "name": "Validate Configuration",
+        "type": "IfCondition",
+        "description": "Validate that required parameters are provided",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@and(not(empty(pipeline().parameters.SourceLakehouseName)), not(empty(pipeline().parameters.BackupLocation)))"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Log Configuration Valid",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "ValidationStatus",
+                "value": "Valid"
+              }
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Fail Pipeline - Invalid Configuration",
+              "type": "Fail",
+              "typeProperties": {
+                "message": "Required parameters missing: SourceLakehouseName and BackupLocation are mandatory",
+                "errorCode": "INVALID_CONFIG"
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Initialize Pipeline Parameters",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      },
+      {
+        "name": "Execute Backup Operation",
+        "type": "FabricNotebook",
+        "description": "Execute the lakehouse backup using the backup notebook",
+        "typeProperties": {
+          "notebookPath": "Fabric_Lakehouse_Backup.ipynb",
+          "parameters": {
+            "source_lakehouse_name": {
+              "value": "@pipeline().parameters.SourceLakehouseName",
+              "type": "Expression"
+            },
+            "backup_location": {
+              "value": "@pipeline().parameters.BackupLocation",
+              "type": "Expression"
+            },
+            "backup_workspace_id": {
+              "value": "@pipeline().parameters.BackupWorkspaceId",
+              "type": "Expression"
+            },
+            "backup_mode": {
+              "value": "@pipeline().parameters.BackupMode",
+              "type": "Expression"
+            },
+            "table_filter": {
+              "value": "@pipeline().parameters.TableFilter",
+              "type": "Expression"
+            },
+            "partition_filter": {
+              "value": "@pipeline().parameters.PartitionFilter",
+              "type": "Expression"
+            },
+            "compression_enabled": {
+              "value": "@pipeline().parameters.CompressionEnabled",
+              "type": "Expression"
+            },
+            "parallel_operations": {
+              "value": "@pipeline().parameters.ParallelOperations",
+              "type": "Expression"
+            },
+            "incremental_backup": {
+              "value": "@pipeline().parameters.IncrementalBackup",
+              "type": "Expression"
+            },
+            "use_managed_identity": {
+              "value": "@pipeline().parameters.UseManagedIdentity",
+              "type": "Expression"
+            },
+            "enable_validation": {
+              "value": "@pipeline().parameters.EnableValidation",
+              "type": "Expression"
+            },
+            "generate_manifest": {
+              "value": "@pipeline().parameters.GenerateManifest",
+              "type": "Expression"
+            },
+            "enable_detailed_logging": {
+              "value": "@pipeline().parameters.EnableDetailedLogging",
+              "type": "Expression"
+            }
+          }
+        },
+        "dependsOn": [
+          {
+            "activity": "Validate Configuration",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      },
+      {
+        "name": "Check Backup Status",
+        "type": "IfCondition",
+        "description": "Check if backup completed successfully",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@equals(activity('Execute Backup Operation').output.status, 'success')"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Set Backup Success Status",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "BackupStatus",
+                "value": "Success"
+              }
+            },
+            {
+              "name": "Log Backup Success",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "BackupResults",
+                "value": "@activity('Execute Backup Operation').output"
+              }
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Set Backup Failed Status",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "BackupStatus",
+                "value": "Failed"
+              }
+            },
+            {
+              "name": "Handle Backup Failure",
+              "type": "IfCondition",
+              "typeProperties": {
+                "expression": {
+                  "type": "Expression",
+                  "value": "@pipeline().parameters.FailOnBackupError"
+                },
+                "ifTrueActivities": [
+                  {
+                    "name": "Fail Pipeline - Backup Failed",
+                    "type": "Fail",
+                    "typeProperties": {
+                      "message": "@concat('Backup operation failed: ', activity('Execute Backup Operation').output.error)",
+                      "errorCode": "BACKUP_FAILED"
+                    }
+                  }
+                ],
+                "ifFalseActivities": [
+                  {
+                    "name": "Continue After Backup Failure",
+                    "type": "SetVariable",
+                    "typeProperties": {
+                      "variableName": "ContinueExecution",
+                      "value": "true"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Execute Backup Operation",
+            "dependencyConditions": ["Completed"]
+          }
+        ]
+      },
+      {
+        "name": "Execute Cleanup Operation",
+        "type": "IfCondition",
+        "description": "Execute cleanup if enabled and backup succeeded",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@and(pipeline().parameters.EnableCleanup, or(equals(variables('BackupStatus'), 'Success'), not(pipeline().parameters.RequireBackupSuccess)))"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Run Cleanup Notebook",
+              "type": "FabricNotebook",
+              "typeProperties": {
+                "notebookPath": "Fabric_Lakehouse_Cleanup.ipynb",
+                "parameters": {
+                  "cleanup_mode": {
+                    "value": "@pipeline().parameters.CleanupMode",
+                    "type": "Expression"
+                  },
+                  "backup_location": {
+                    "value": "@pipeline().parameters.BackupLocation",
+                    "type": "Expression"
+                  },
+                  "backup_workspace_id": {
+                    "value": "@pipeline().parameters.BackupWorkspaceId",
+                    "type": "Expression"
+                  },
+                  "retention_days": {
+                    "value": "@pipeline().parameters.RetentionDays",
+                    "type": "Expression"
+                  },
+                  "max_backup_count": {
+                    "value": "@pipeline().parameters.MaxBackupCount",
+                    "type": "Expression"
+                  },
+                  "max_size_gb": {
+                    "value": "@pipeline().parameters.MaxSizeGB",
+                    "type": "Expression"
+                  },
+                  "preserve_policy": {
+                    "value": "@pipeline().parameters.PreservePolicy",
+                    "type": "Expression"
+                  },
+                  "preserve_daily_count": {
+                    "value": "@pipeline().parameters.PreserveDailyCount",
+                    "type": "Expression"
+                  },
+                  "preserve_weekly_count": {
+                    "value": "@pipeline().parameters.PreserveWeeklyCount",
+                    "type": "Expression"
+                  },
+                  "preserve_monthly_count": {
+                    "value": "@pipeline().parameters.PreserveMonthlyCount",
+                    "type": "Expression"
+                  },
+                  "dry_run": {
+                    "value": "@pipeline().parameters.CleanupDryRun",
+                    "type": "Expression"
+                  },
+                  "exclude_patterns": {
+                    "value": "@pipeline().parameters.ExcludePatterns",
+                    "type": "Expression"
+                  },
+                  "include_patterns": {
+                    "value": "@pipeline().parameters.IncludePatterns",
+                    "type": "Expression"
+                  },
+                  "use_managed_identity": {
+                    "value": "@pipeline().parameters.UseManagedIdentity",
+                    "type": "Expression"
+                  },
+                  "enable_detailed_logging": {
+                    "value": "@pipeline().parameters.EnableDetailedLogging",
+                    "type": "Expression"
+                  },
+                  "generate_report": {
+                    "value": "@pipeline().parameters.GenerateCleanupReport",
+                    "type": "Expression"
+                  }
+                }
+              }
+            },
+            {
+              "name": "Set Cleanup Results",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "CleanupResults",
+                "value": "@activity('Run Cleanup Notebook').output"
+              },
+              "dependsOn": [
+                {
+                  "activity": "Run Cleanup Notebook",
+                  "dependencyConditions": ["Completed"]
+                }
+              ]
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Skip Cleanup",
+              "type": "SetVariable",
+              "typeProperties": {
+                "variableName": "CleanupResults",
+                "value": {
+                  "status": "skipped",
+                  "message": "Cleanup not enabled or backup prerequisite not met"
+                }
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Check Backup Status",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      },
+      {
+        "name": "Generate Final Report",
+        "type": "SetVariable",
+        "description": "Compile final execution report",
+        "typeProperties": {
+          "variableName": "FinalReport",
+          "value": {
+            "executionId": "@variables('PipelineConfig').executionId",
+            "executionTime": "@variables('PipelineConfig').executionTime",
+            "completionTime": "@utcnow()",
+            "environment": "@variables('PipelineConfig').environment",
+            "backupResults": "@variables('BackupResults')",
+            "cleanupResults": "@variables('CleanupResults')",
+            "overallStatus": "@if(and(equals(variables('BackupStatus'), 'Success'), or(not(pipeline().parameters.EnableCleanup), not(equals(variables('CleanupResults').status, 'failed')))), 'Success', 'Failed')"
+          }
+        },
+        "dependsOn": [
+          {
+            "activity": "Execute Cleanup Operation",
+            "dependencyConditions": ["Completed"]
+          }
+        ]
+      },
+      {
+        "name": "Send Notification",
+        "type": "IfCondition",
+        "description": "Send notification if enabled",
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@pipeline().parameters.NotificationEnabled"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Send Success Notification",
+              "type": "IfCondition",
+              "typeProperties": {
+                "expression": {
+                  "type": "Expression",
+                  "value": "@equals(variables('FinalReport').overallStatus, 'Success')"
+                },
+                "ifTrueActivities": [
+                  {
+                    "name": "Send Success Email",
+                    "type": "WebActivity",
+                    "typeProperties": {
+                      "url": "@pipeline().parameters.NotificationWebhookUrl",
+                      "method": "POST",
+                      "body": {
+                        "subject": "Fabric Lakehouse Backup - Success",
+                        "message": "@concat('Backup and cleanup completed successfully for lakehouse: ', pipeline().parameters.SourceLakehouseName)",
+                        "details": "@variables('FinalReport')",
+                        "timestamp": "@utcnow()"
+                      }
+                    }
+                  }
+                ],
+                "ifFalseActivities": [
+                  {
+                    "name": "Send Failure Email",
+                    "type": "WebActivity",
+                    "typeProperties": {
+                      "url": "@pipeline().parameters.NotificationWebhookUrl",
+                      "method": "POST",
+                      "body": {
+                        "subject": "Fabric Lakehouse Backup - Failed",
+                        "message": "@concat('Backup or cleanup failed for lakehouse: ', pipeline().parameters.SourceLakehouseName)",
+                        "details": "@variables('FinalReport')",
+                        "timestamp": "@utcnow()"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          {
+            "activity": "Generate Final Report",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ]
+      }
+    ],
+    "parameters": {
+      "SourceLakehouseName": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "Name of the source lakehouse to backup"
+      },
+      "BackupLocation": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "Destination path for backups (OneLake, Storage Account, or ADLS)"
+      },
+      "BackupWorkspaceId": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "Workspace ID containing the source lakehouse"
+      },
+      "Environment": {
+        "type": "string",
+        "defaultValue": "production",
+        "description": "Environment name (development, staging, production)"
+      },
+      "BackupMode": {
+        "type": "string",
+        "defaultValue": "full",
+        "description": "Backup mode: full, incremental, or differential"
+      },
+      "TableFilter": {
+        "type": "string",
+        "defaultValue": "*",
+        "description": "Comma-separated list of table patterns to include"
+      },
+      "PartitionFilter": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "Partition filter for incremental backups"
+      },
+      "CompressionEnabled": {
+        "type": "string",
+        "defaultValue": "True",
+        "description": "Enable compression for backup files"
+      },
+      "ParallelOperations": {
+        "type": "string",
+        "defaultValue": "4",
+        "description": "Number of parallel operations for backup"
+      },
+      "IncrementalBackup": {
+        "type": "string",
+        "defaultValue": "False",
+        "description": "Enable incremental backup mode"
+      },
+      "UseManagedIdentity": {
+        "type": "string",
+        "defaultValue": "True",
+        "description": "Use managed identity for authentication"
+      },
+      "EnableValidation": {
+        "type": "string",
+        "defaultValue": "True",
+        "description": "Enable backup validation"
+      },
+      "GenerateManifest": {
+        "type": "string",
+        "defaultValue": "True",
+        "description": "Generate backup manifest file"
+      },
+      "EnableDetailedLogging": {
+        "type": "string",
+        "defaultValue": "True",
+        "description": "Enable detailed logging"
+      },
+      "EnableCleanup": {
+        "type": "bool",
+        "defaultValue": true,
+        "description": "Enable automatic cleanup after backup"
+      },
+      "RequireBackupSuccess": {
+        "type": "bool",
+        "defaultValue": true,
+        "description": "Only run cleanup if backup succeeds"
+      },
+      "CleanupMode": {
+        "type": "string",
+        "defaultValue": "age_based",
+        "description": "Cleanup mode: age_based, count_based, size_based, or advanced"
+      },
+      "RetentionDays": {
+        "type": "string",
+        "defaultValue": "30",
+        "description": "Number of days to retain backups (for age_based cleanup)"
+      },
+      "MaxBackupCount": {
+        "type": "string",
+        "defaultValue": "10",
+        "description": "Maximum number of backups to keep (for count_based cleanup)"
+      },
+      "MaxSizeGB": {
+        "type": "string",
+        "defaultValue": "100",
+        "description": "Maximum total size in GB (for size_based cleanup)"
+      },
+      "PreservePolicy": {
+        "type": "string",
+        "defaultValue": "weekly",
+        "description": "Preservation policy: none, daily, weekly, or monthly"
+      },
+      "PreserveDailyCount": {
+        "type": "string",
+        "defaultValue": "7",
+        "description": "Number of daily backups to preserve"
+      },
+      "PreserveWeeklyCount": {
+        "type": "string",
+        "defaultValue": "4",
+        "description": "Number of weekly backups to preserve"
+      },
+      "PreserveMonthlyCount": {
+        "type": "string",
+        "defaultValue": "12",
+        "description": "Number of monthly backups to preserve"
+      },
+      "CleanupDryRun": {
+        "type": "string",
+        "defaultValue": "True",
+        "description": "Run cleanup in dry-run mode (preview only)"
+      },
+      "ExcludePatterns": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "Comma-separated patterns to exclude from cleanup"
+      },
+      "IncludePatterns": {
+        "type": "string",
+        "defaultValue": "backup_*",
+        "description": "Comma-separated patterns to include in cleanup"
+      },
+      "GenerateCleanupReport": {
+        "type": "string",
+        "defaultValue": "True",
+        "description": "Generate cleanup report"
+      },
+      "NotificationEnabled": {
+        "type": "bool",
+        "defaultValue": false,
+        "description": "Enable email notifications"
+      },
+      "NotificationWebhookUrl": {
+        "type": "string",
+        "defaultValue": "",
+        "description": "Webhook URL for notifications (Logic App, Power Automate, etc.)"
+      },
+      "FailOnBackupError": {
+        "type": "bool",
+        "defaultValue": true,
+        "description": "Fail the pipeline if backup fails"
+      }
+    },
+    "variables": {
+      "PipelineConfig": {
+        "type": "Object"
+      },
+      "ValidationStatus": {
+        "type": "String"
+      },
+      "BackupStatus": {
+        "type": "String"
+      },
+      "BackupResults": {
+        "type": "Object"
+      },
+      "CleanupResults": {
+        "type": "Object"
+      },
+      "FinalReport": {
+        "type": "Object"
+      },
+      "ContinueExecution": {
+        "type": "String"
+      }
+    },
+    "annotations": [
+      {
+        "name": "Purpose",
+        "value": "Orchestrates Microsoft Fabric lakehouse backup and cleanup operations"
+      },
+      {
+        "name": "Version",
+        "value": "1.0"
+      },
+      {
+        "name": "Author",
+        "value": "Generated for Microsoft Fabric"
+      }
+    ]
+  }
+}

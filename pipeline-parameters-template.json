@@ -1,0 +1,290 @@
+{
+  "pipelineConfigurations": {
+    "development": {
+      "orchestrationPipeline": {
+        "SourceLakehouseName": "dev_analytics_lakehouse",
+        "BackupLocation": "abfss://dev-backups@devstorage.dfs.core.windows.net/lakehouse-backups",
+        "BackupWorkspaceId": "dev-workspace-guid-here",
+        "Environment": "development",
+        "BackupMode": "incremental",
+        "TableFilter": "*",
+        "CompressionEnabled": "True",
+        "ParallelOperations": "2",
+        "IncrementalBackup": "True",
+        "EnableValidation": "True",
+        "GenerateManifest": "True",
+        "EnableDetailedLogging": "True",
+        "EnableCleanup": true,
+        "RequireBackupSuccess": true,
+        "CleanupMode": "age_based",
+        "RetentionDays": "7",
+        "MaxBackupCount": "5",
+        "PreservePolicy": "daily",
+        "PreserveDailyCount": "3",
+        "CleanupDryRun": "False",
+        "IncludePatterns": "backup_*",
+        "ExcludePatterns": "manual_*,test_*",
+        "GenerateCleanupReport": "True",
+        "NotificationEnabled": false,
+        "FailOnBackupError": false
+      }
+    },
+    "staging": {
+      "orchestrationPipeline": {
+        "SourceLakehouseName": "staging_analytics_lakehouse",
+        "BackupLocation": "abfss://staging-backups@stagingstorage.dfs.core.windows.net/lakehouse-backups",
+        "BackupWorkspaceId": "staging-workspace-guid-here",
+        "Environment": "staging",
+        "BackupMode": "full",
+        "TableFilter": "*",
+        "CompressionEnabled": "True",
+        "ParallelOperations": "4",
+        "IncrementalBackup": "False",
+        "EnableValidation": "True",
+        "GenerateManifest": "True",
+        "EnableDetailedLogging": "True",
+        "EnableCleanup": true,
+        "RequireBackupSuccess": true,
+        "CleanupMode": "count_based",
+        "RetentionDays": "14",
+        "MaxBackupCount": "10",
+        "PreservePolicy": "weekly",
+        "PreserveDailyCount": "7",
+        "PreserveWeeklyCount": "4",
+        "CleanupDryRun": "True",
+        "IncludePatterns": "backup_*",
+        "ExcludePatterns": "manual_*",
+        "GenerateCleanupReport": "True",
+        "NotificationEnabled": true,
+        "NotificationWebhookUrl": "https://staging-notifications.company.com/webhook",
+        "FailOnBackupError": true
+      }
+    },
+    "production": {
+      "orchestrationPipeline": {
+        "SourceLakehouseName": "prod_analytics_lakehouse",
+        "BackupLocation": "abfss://prod-backups@prodstorage.dfs.core.windows.net/lakehouse-backups",
+        "BackupWorkspaceId": "prod-workspace-guid-here",
+        "Environment": "production",
+        "BackupMode": "full",
+        "TableFilter": "*",
+        "PartitionFilter": "",
+        "CompressionEnabled": "True",
+        "ParallelOperations": "6",
+        "IncrementalBackup": "False",
+        "UseManagedIdentity": "True",
+        "EnableValidation": "True",
+        "GenerateManifest": "True",
+        "EnableDetailedLogging": "True",
+        "EnableCleanup": true,
+        "RequireBackupSuccess": true,
+        "CleanupMode": "advanced",
+        "RetentionDays": "90",
+        "MaxBackupCount": "20",
+        "MaxSizeGB": "500",
+        "PreservePolicy": "monthly",
+        "PreserveDailyCount": "7",
+        "PreserveWeeklyCount": "4",
+        "PreserveMonthlyCount": "12",
+        "CleanupDryRun": "True",
+        "ExcludePatterns": "manual_*,critical_*",
+        "IncludePatterns": "backup_*",
+        "GenerateCleanupReport": "True",
+        "NotificationEnabled": true,
+        "NotificationWebhookUrl": "https://prod-notifications.company.com/webhook",
+        "FailOnBackupError": true
+      },
+      "multiEnvironmentPipeline": {
+        "Environment": "production",
+        "LakehouseList": [
+          {
+            "name": "sales_analytics_lakehouse",
+            "workspaceId": "sales-workspace-guid",
+            "tableFilter": "sales_*,customers_*,products_*"
+          },
+          {
+            "name": "finance_analytics_lakehouse",
+            "workspaceId": "finance-workspace-guid",
+            "tableFilter": "transactions_*,accounts_*,budgets_*"
+          },
+          {
+            "name": "hr_analytics_lakehouse",
+            "workspaceId": "hr-workspace-guid",
+            "tableFilter": "employees,payroll,benefits"
+          },
+          {
+            "name": "operations_analytics_lakehouse",
+            "workspaceId": "ops-workspace-guid",
+            "tableFilter": "*"
+          }
+        ],
+        "BaseBackupLocation": "abfss://enterprise-backups@prodstorage.dfs.core.windows.net",
+        "SequentialProcessing": false,
+        "BatchSize": 2,
+        "CleanupDryRun": "True",
+        "NotificationEnabled": true,
+        "NotificationWebhookUrl": "https://enterprise-notifications.company.com/webhook"
+      }
+    }
+  },
+  "scheduleConfigurations": {
+    "development": {
+      "backupSchedule": {
+        "frequency": "Day",
+        "interval": 1,
+        "startTime": "03:00:00",
+        "timeZone": "UTC"
+      },
+      "cleanupSchedule": {
+        "frequency": "Week",
+        "interval": 1,
+        "startTime": "04:00:00",
+        "daysOfWeek": ["Saturday"],
+        "timeZone": "UTC"
+      }
+    },
+    "staging": {
+      "backupSchedule": {
+        "frequency": "Day",
+        "interval": 1,
+        "startTime": "02:30:00",
+        "timeZone": "UTC"
+      },
+      "cleanupSchedule": {
+        "frequency": "Week",
+        "interval": 1,
+        "startTime": "03:30:00",
+        "daysOfWeek": ["Sunday"],
+        "timeZone": "UTC"
+      }
+    },
+    "production": {
+      "backupSchedule": {
+        "frequency": "Day",
+        "interval": 1,
+        "startTime": "02:00:00",
+        "timeZone": "UTC"
+      },
+      "cleanupSchedule": {
+        "frequency": "Week",
+        "interval": 1,
+        "startTime": "03:00:00",
+        "daysOfWeek": ["Sunday"],
+        "timeZone": "UTC"
+      },
+      "multiLakehouseSchedule": {
+        "frequency": "Day",
+        "interval": 1,
+        "startTime": "01:00:00",
+        "timeZone": "UTC"
+      }
+    }
+  },
+  "notificationConfigurations": {
+    "development": {
+      "enabled": false,
+      "webhookUrl": "",
+      "recipients": ["dev-team@company.com"],
+      "onSuccess": false,
+      "onFailure": true
+    },
+    "staging": {
+      "enabled": true,
+      "webhookUrl": "https://staging-notifications.company.com/webhook",
+      "recipients": ["staging-team@company.com", "devops@company.com"],
+      "onSuccess": false,
+      "onFailure": true
+    },
+    "production": {
+      "enabled": true,
+      "webhookUrl": "https://prod-notifications.company.com/webhook",
+      "recipients": ["prod-team@company.com", "devops@company.com", "management@company.com"],
+      "onSuccess": true,
+      "onFailure": true,
+      "escalation": {
+        "enabled": true,
+        "delayMinutes": 30,
+        "recipients": ["on-call@company.com"]
+      }
+    }
+  },
+  "storageConfigurations": {
+    "development": {
+      "storageAccount": "devstorage",
+      "containerName": "dev-backups",
+      "path": "lakehouse-backups",
+      "authenticationType": "managedIdentity",
+      "retentionPolicy": "7days"
+    },
+    "staging": {
+      "storageAccount": "stagingstorage",
+      "containerName": "staging-backups",
+      "path": "lakehouse-backups",
+      "authenticationType": "managedIdentity",
+      "retentionPolicy": "14days"
+    },
+    "production": {
+      "storageAccount": "prodstorage",
+      "containerName": "prod-backups",
+      "path": "lakehouse-backups",
+      "authenticationType": "managedIdentity",
+      "retentionPolicy": "90days",
+      "archiveTier": {
+        "enabled": true,
+        "afterDays": 30
+      },
+      "geoReplication": {
+        "enabled": true,
+        "targetRegion": "westus2"
+      }
+    }
+  },
+  "monitoringConfigurations": {
+    "alertRules": [
+      {
+        "name": "Backup Failure Alert",
+        "condition": "BackupStatus == 'Failed'",
+        "severity": "High",
+        "environments": ["staging", "production"]
+      },
+      {
+        "name": "Backup Duration Alert",
+        "condition": "BackupDurationMinutes > 120",
+        "severity": "Medium",
+        "environments": ["production"]
+      },
+      {
+        "name": "Cleanup Failure Alert",
+        "condition": "CleanupStatus == 'Failed'",
+        "severity": "Medium",
+        "environments": ["staging", "production"]
+      },
+      {
+        "name": "Storage Quota Alert",
+        "condition": "StorageUsagePercent > 80",
+        "severity": "High",
+        "environments": ["production"]
+      }
+    ],
+    "dashboards": {
+      "backupMetrics": {
+        "name": "Lakehouse Backup Metrics",
+        "widgets": [
+          "BackupSuccessRate",
+          "BackupDuration",
+          "BackupSizeGrowth",
+          "CleanupEfficiency"
+        ]
+      },
+      "storageMetrics": {
+        "name": "Backup Storage Metrics",
+        "widgets": [
+          "StorageUsage",
+          "CostAnalysis",
+          "DataRetention",
+          "ArchivalStatus"
+        ]
+      }
+    }
+  }
+}
